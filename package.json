@@ -1,0 +1,39 @@
+{
+  "name": "hd-bs",
+  "version": "0.0.1",
+  "type": "module",
+  "publisher": "ynqq",
+  "license": "MIT",
+  "bin": {
+    "hd-bs": "./bin/main.js"
+  },
+  "main": "./bin/main.js",
+  "engines": {
+    "node": ">=16"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "run": "npm run build && node ./bin/main.js"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^22.13.5",
+    "@types/rc": "^1.2.4",
+    "@types/shelljs": "^0.8.15",
+    "@types/ssh2": "^1.15.4",
+    "typescript": "~5.7.3",
+    "vite": "^4.5.9"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "dayjs": "^1.11.13",
+    "inquirer": "^8.2.6",
+    "ora": "^8.2.0",
+    "os": "^0.1.2",
+    "rc": "^1.2.8",
+    "shelljs": "^0.8.5",
+    "ssh2": "^1.16.0"
+  }
+}
