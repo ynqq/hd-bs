@@ -14,7 +14,7 @@ import dayjs from "dayjs";
 import ora from "ora";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.3";
+const version = "0.0.4";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -266,6 +266,16 @@ const buildDockerImg = async (tag, imageName, folderPath, item) => {
   sp.color = "green";
   await sleep(300);
   console.log(chalk.green(`镜像生成成功: ${new_image_name_remote}:${tag}`));
+  {
+    fs.rmSync(path$1.join(folderPath, `/${item}/public/version.json`));
+    fs.rmSync(path$1.join(folderPath, `/${item}/${LOCK_DOCKERFILE_NAME}`));
+    const commands2 = [
+      `cd ${path$1.join(folderPath, `/${item}`)}`,
+      `git checkout -- .gitmodules`,
+      `git checkout -- .dockerignore`
+    ];
+    await execAsync(commands2.join("&&"));
+  }
   sp.stop();
   return `${new_image_name_remote}:${tag}`;
 };
@@ -466,6 +476,21 @@ const getDeployConfig = async (passBuild) => {
     deployConfig
   };
 };
+program.command("b").description("只构建").action(async (options) => {
+  const p = options.passBuild || process.argv.includes("-p");
+  const { folder } = getConfig();
+  if (!folder) {
+    console.log(chalk.red(`请使用[hd-bs init <dir>]进行设置`));
+    kill$1(process.pid);
+    return;
+  }
+  await execAsync(`docker info`, "请先安装并启动docker");
+  const { deployConfig } = await getDeployConfig(p);
+  console.log(
+    chalk.green(`所选配置项: ${JSON.stringify(deployConfig, null, 2)}`)
+  );
+  await handleBuild(deployConfig);
+});
 program.command("bs").option("-p", "跳过build").description("构建并且部署").action(async (options) => {
   const p = options.passBuild || process.argv.includes("-p");
   const { folder } = getConfig();

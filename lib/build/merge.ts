@@ -230,6 +230,18 @@ const buildDockerImg = async (
   sp.color = "green";
   await sleep(300);
   console.log(chalk.green(`镜像生成成功: ${new_image_name_remote}:${tag}`));
+  {
+    // 删除本次构建的文件
+    // 回退本次修改的git记录
+    fs.rmSync(path.join(folderPath, `/${item}/public/version.json`));
+    fs.rmSync(path.join(folderPath, `/${item}/${LOCK_DOCKERFILE_NAME}`));
+    const commands = [
+      `cd ${path.join(folderPath, `/${item}`)}`,
+      `git checkout -- .gitmodules`,
+      `git checkout -- .dockerignore`,
+    ];
+    await execAsync(commands.join("&&"));
+  }
   sp.stop();
   return `${new_image_name_remote}:${tag}`;
 };

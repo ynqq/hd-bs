@@ -2,17 +2,18 @@
 
 ### 初始化
 
-1. 执行 <font color="#00baff">config</font> 命令，查看 rc 文件地址。打开配置文件，因为配置有些复杂，建议手动修改。
+1. 随便创建一个文件夹，然后执行 <font color="#00baff">init</font> 命令，将文件夹地址当做工作目录。
+
+```node
+    hd-bs init <工作目录地址>
+```
+
+2. 执行 <font color="#00baff">config</font> 命令，查看 rc 文件地址。打开配置文件，因为配置有些复杂，建议手动修改。
 
 ```node
     hd-bs config ls
 ```
 
-2. 随便创建一个文件夹，然后执行 <font color="#00baff">init</font> 命令，将文件夹地址当做工作目录。
-
-```node
-    hd-bs init <工作目录地址>
-```
 
 ### 构建并且部署
 
@@ -20,6 +21,14 @@
 
 ```node
     hd-bs bs [-p]
+```
+
+### 只构建
+
+- hd-bs b
+
+```node
+    hd-bs b
 ```
 
 ### 只部署

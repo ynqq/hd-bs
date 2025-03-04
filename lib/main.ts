@@ -25,8 +25,8 @@ program
   .action(async (dir) => {
     const sp = createOra("正在进行初始化");
     setConfig({
-      folder: dir
-    })
+      folder: dir,
+    });
     const { initProjectes, gitPrefix, folder } = getConfig();
     if (dir === "") {
       if (folder) {
@@ -104,6 +104,25 @@ const getDeployConfig = async (passBuild: boolean) => {
     deployConfig,
   };
 };
+
+program
+  .command("b")
+  .description("只构建")
+  .action(async (options) => {
+    const p = options.passBuild || process.argv.includes("-p");
+    const { folder } = getConfig();
+    if (!folder) {
+      console.log(chalk.red(`请使用[hd-bs init <dir>]进行设置`));
+      kill(process.pid);
+      return;
+    }
+    await execAsync(`docker info`, "请先安装并启动docker");
+    const { deployConfig } = await getDeployConfig(p);
+    console.log(
+      chalk.green(`所选配置项: ${JSON.stringify(deployConfig, null, 2)}`)
+    );
+    await handleBuild(deployConfig);
+  });
 
 program
   .command("bs")
