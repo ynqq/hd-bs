@@ -1,6 +1,6 @@
 {
   "name": "hd-bs",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "type": "module",
   "publisher": "ynqq",
   "license": "MIT",
@@ -14,7 +14,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "run": "npm run build && node ./bin/main.js"
+    "run": "npm run build && node ./bin/main.js",
+    "publish": "npm run build && npm publish"
   },
   "devDependencies": {
     "@types/inquirer": "^9.0.7",

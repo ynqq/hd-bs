@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command, program } from "commander";
-import pkg from "./config/index.json";
+import { version } from "../package.json";
 import { getConfig, getRCPath, setBranches, setConfig } from "./config";
 import { kill } from "process";
 import chalk from "chalk";
@@ -16,7 +16,7 @@ import { RunGitOptions } from "./build/types";
 
 const prompt = createPromptModule();
 
-program.version(pkg.version, "-v, --version");
+program.version(version, "-v, --version");
 
 program
   .command("init")
@@ -24,6 +24,9 @@ program
   .description("初始化工作目录")
   .action(async (dir) => {
     const sp = createOra("正在进行初始化");
+    setConfig({
+      folder: dir
+    })
     const { initProjectes, gitPrefix, folder } = getConfig();
     if (dir === "") {
       if (folder) {

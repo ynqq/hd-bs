@@ -5,18 +5,16 @@ import fs from "node:fs";
 import path from "path";
 import rc from "rc";
 import os from "os";
-import { kill } from "process";
+import { kill as kill$1 } from "process";
 import * as inquirer from "inquirer";
 import path$1 from "node:path";
 import { exec } from "child_process";
 import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import ora from "ora";
+import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.1";
-const pkg = {
-  version
-};
+const version = "0.0.3";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -34,8 +32,7 @@ const getConfig = () => {
     initProjectes: [],
     gitPrefix: "",
     projectes: [],
-    serverConfig: {},
-    dockerDir: "/mnt/v/.docker"
+    serverConfig: {}
   });
   return config;
 };
@@ -124,6 +121,8 @@ const handleMergeBranch = async (project, branch, folderPath) => {
             `${submoduleFolderName} ${mergeToTestBranch} -> test 合并失败`
           )
         );
+        execAsync(`code ${path$1.join(folderPath, `/${submoduleFolderName}`)}`);
+        kill(process.pid);
       }
     }
     const commands = [
@@ -140,6 +139,8 @@ const handleMergeBranch = async (project, branch, folderPath) => {
       console.log(
         chalk.red(`${project} ${mergeToTestBranch} -> test 合并失败`)
       );
+      execAsync(`code ${path$1.join(folderPath, `/${project}`)}`);
+      kill(process.pid);
     }
   } else {
     const commands = [
@@ -147,7 +148,12 @@ const handleMergeBranch = async (project, branch, folderPath) => {
       `git checkout ${branch}`,
       `git pull ${origin} ${branch}`
     ];
-    await execAsync(commands.join("&&"));
+    try {
+      await execAsync(commands.join("&&"));
+    } catch (error) {
+      execAsync(`code ${path$1.join(folderPath, `/${project}`)}`);
+      kill(process.pid);
+    }
   }
   sp.color = "green";
   sp.text = "合并完成";
@@ -155,17 +161,18 @@ const handleMergeBranch = async (project, branch, folderPath) => {
   sp.stop();
 };
 const getPkgConfig = async (item, folderPath) => {
-  const pkg2 = fs.readFileSync(
+  const pkg = fs.readFileSync(
     path$1.join(folderPath, `/${item}/package.json`),
     "utf-8"
   );
   try {
-    return JSON.parse(pkg2);
+    return JSON.parse(pkg);
   } catch (error) {
     return null;
   }
 };
 const setSubmodule = async (project, branch, folderPath) => {
+  var _a, _b;
   const sp = createOra("正在初始化子仓库");
   const gitmodules_file = ".gitmodules";
   const filePath = path$1.join(folderPath, `/${project}/${gitmodules_file}`);
@@ -186,12 +193,21 @@ const setSubmodule = async (project, branch, folderPath) => {
       force: true
     }
   );
-  await execAsync(
+  const res = await execAsync(
     [
       `cd ${path$1.join(folderPath, `/${project}`)}`,
       "git submodule init",
       "git submodule update --remote"
     ].join("&&")
+  );
+  const submoduleCommitId = (_b = (_a = res.split(" ").at(-1)) == null ? void 0 : _a.replace) == null ? void 0 : _b.call(_a, "\n", "");
+  console.log(
+    chalk.blue(
+      `
+${project}子仓库commitId: ${chalk.red(submoduleCommitId)} ${chalk.red(
+        "\n请确认是否正确！！！"
+      )}`
+    )
   );
   sp.text = "子仓库初始化完成";
   sp.color = "green";
@@ -222,6 +238,8 @@ const genLogFile = async ({ projectVersion, name }, item, folderPath) => {
   "gitCoreLog": "${gitCoreLog}"
 }
 `;
+  console.log(`
+ ${chalk.blue(`version信息:`)} ${chalk.blue(content)}`);
   fs.writeFileSync(
     path$1.join(folderPath, `/${item}/public/version.json`),
     content
@@ -310,23 +328,19 @@ const handleBuild = async (options) => {
     project
   };
   await initProject(pubOptions);
-  try {
-    if (!passBuild) {
-      handleMergeBranch(project, branch, folderPath);
-    }
-  } catch (error) {
-    console.log(error);
+  if (!passBuild) {
+    handleMergeBranch(project, branch, folderPath);
   }
-  const pkg2 = await getPkgConfig(project, folderPath);
-  if (pkg2) {
-    const { projectVersion, thirdPartyUrl } = pkg2;
+  const pkg = await getPkgConfig(project, folderPath);
+  if (pkg) {
+    const { projectVersion, thirdPartyUrl } = pkg;
     await createLocalDockerfile(pubOptions, thirdPartyUrl);
     const random_number = [...new Array(4)].map(() => Math.random() * 10 | 0).join("");
     const tag = `${branch}.${projectVersion}.${random_number}`;
     if (!passBuild) {
       await setSubmodule(project, branch, folderPath);
     }
-    const { imageName } = await genLogFile(pkg2, project, folderPath);
+    const { imageName } = await genLogFile(pkg, project, folderPath);
     if (!passBuild) {
       await runBuild(folderPath, project);
     }
@@ -334,13 +348,13 @@ const handleBuild = async (options) => {
   }
 };
 const handleDeploy = async (deployConfig, tag) => {
-  const { serverConfig, image_name_remote, dockerDir } = getConfig();
+  const { serverConfig, image_name_remote } = getConfig();
   const hostConfig = serverConfig[deployConfig.host];
   if (!hostConfig) {
     console.log(chalk.red(`请设置${deployConfig.host}的服务器用户名和密码`));
-    kill(process.pid);
+    kill$1(process.pid);
   }
-  const { username, password, sudoPassword } = hostConfig;
+  const { username, password, sudoPassword, dockerDir } = hostConfig;
   const config = {
     host: deployConfig.host,
     port: 22,
@@ -350,7 +364,6 @@ const handleDeploy = async (deployConfig, tag) => {
   const project = deployConfig.deployProjectes.replace(/plm-vue-(.*)/, "$1");
   const envTag = tag.replace(`${image_name_remote}${project}:`, "");
   const envKey = `vue_${project}_tag`;
-  console.log(envTag, config, JSON.stringify(deployConfig));
   const { serverFolder } = deployConfig;
   const commands = `cd ${dockerDir}/${serverFolder}/ &&     echo '${sudoPassword}' | sudo -S sed -i  "s/${envKey}=.*/${envKey}=${envTag}/g" .env &&     echo '${sudoPassword}' | sudo -S docker-compose build &&     echo '${sudoPassword}' | sudo -S docker-compose stop web &&     echo '${sudoPassword}' | sudo -S docker-compose up -d web`;
   const conn = new Client();
@@ -359,7 +372,7 @@ const handleDeploy = async (deployConfig, tag) => {
     conn.exec(commands, (err, stream) => {
       if (err) {
         console.log(chalk.red("执行报错"));
-        kill(process.pid);
+        kill$1(process.pid);
         return;
       }
       stream.on("close", () => {
@@ -375,16 +388,19 @@ const handleDeploy = async (deployConfig, tag) => {
 };
 const { createPromptModule } = inquirer.default;
 const prompt = createPromptModule();
-program.version(pkg.version, "-v, --version");
+program.version(version, "-v, --version");
 program.command("init").argument("[dir]", "工作目录", "").description("初始化工作目录").action(async (dir) => {
   const sp = createOra("正在进行初始化");
+  setConfig({
+    folder: dir
+  });
   const { initProjectes, gitPrefix, folder } = getConfig();
   if (dir === "") {
     if (folder) {
       dir = folder;
     } else {
       console.log(chalk.red("请设置工作目录"));
-      kill(process.pid);
+      kill$1(process.pid);
     }
   }
   const dirs = initProjectes.map((p) => ({
@@ -420,7 +436,7 @@ const getDeployConfig = async (passBuild) => {
   });
   if (!deployProjectes) {
     console.log(chalk.red(`请选择要部署的项目`));
-    kill(process.pid);
+    kill$1(process.pid);
   }
   const { deployBranch } = await prompt({
     type: "list",
@@ -436,7 +452,7 @@ const getDeployConfig = async (passBuild) => {
     console.log(
       chalk.red(`请先打开[ ${getRCPath()} ], 设置server.${deployBranch}的信息`)
     );
-    kill(process.pid);
+    kill$1(process.pid);
   }
   const deployConfig = {
     host: serverConfig.host,
@@ -455,7 +471,7 @@ program.command("bs").option("-p", "跳过build").description("构建并且部�
   const { folder } = getConfig();
   if (!folder) {
     console.log(chalk.red(`请使用[hd-bs init <dir>]进行设置`));
-    kill(process.pid);
+    kill$1(process.pid);
     return;
   }
   await execAsync(`docker info`, "请先安装并启动docker");

@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { createOra } from "../ora";
 import { RunGitOptions } from "./types";
+import { kill } from "node:process";
 
 interface IPubOptions {
   projectPath: string;
@@ -49,6 +50,8 @@ export const handleMergeBranch = async (
             `${submoduleFolderName} ${mergeToTestBranch} -> test 合并失败`
           )
         );
+        execAsync(`code ${path.join(folderPath, `/${submoduleFolderName}`)}`);
+        kill(process.pid);
       }
     }
     const commands = [
@@ -65,6 +68,8 @@ export const handleMergeBranch = async (
       console.log(
         chalk.red(`${project} ${mergeToTestBranch} -> test 合并失败`)
       );
+      execAsync(`code ${path.join(folderPath, `/${project}`)}`);
+      kill(process.pid);
     }
   } else {
     const commands = [
@@ -72,7 +77,12 @@ export const handleMergeBranch = async (
       `git checkout ${branch}`,
       `git pull ${origin} ${branch}`,
     ];
-    await execAsync(commands.join("&&"));
+    try {
+      await execAsync(commands.join("&&"));
+    } catch (error) {
+      execAsync(`code ${path.join(folderPath, `/${project}`)}`);
+      kill(process.pid);
+    }
   }
 
   sp.color = "green";
@@ -122,13 +132,22 @@ const setSubmodule = async (
       force: true,
     }
   );
-  await execAsync(
+  const res = await execAsync(
     [
       `cd ${path.join(folderPath, `/${project}`)}`,
       "git submodule init",
       "git submodule update --remote",
     ].join("&&")
   );
+  const submoduleCommitId = res.split(" ").at(-1)?.replace?.("\n", "");
+  console.log(
+    chalk.blue(
+      `\n${project}子仓库commitId: ${chalk.red(submoduleCommitId)} ${chalk.red(
+        "\n请确认是否正确！！！"
+      )}`
+    )
+  );
+
   sp.text = "子仓库初始化完成";
   sp.color = "green";
   await sleep(300);
@@ -176,6 +195,8 @@ const genLogFile = async (
   "gitCoreLog": "${gitCoreLog}"
 }
 `;
+
+  console.log(`\n ${chalk.blue(`version信息:`)} ${chalk.blue(content)}`);
 
   fs.writeFileSync(
     path.join(folderPath, `/${item}/public/version.json`),
@@ -278,12 +299,8 @@ export const handleBuild = async (options: RunGitOptions) => {
     project,
   };
   await initProject(pubOptions);
-  try {
-    if (!passBuild) {
-      handleMergeBranch(project, branch, folderPath);
-    }
-  } catch (error) {
-    console.log(error);
+  if (!passBuild) {
+    handleMergeBranch(project, branch, folderPath);
   }
   const pkg = await getPkgConfig(project, folderPath);
   if (pkg) {

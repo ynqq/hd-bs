@@ -8,13 +8,13 @@ export const handleDeploy = async (
   deployConfig: RunGitOptions,
   tag: string
 ) => {
-  const { serverConfig, image_name_remote, dockerDir } = getConfig();
+  const { serverConfig, image_name_remote } = getConfig();
   const hostConfig = serverConfig[deployConfig.host];
   if (!hostConfig) {
     console.log(chalk.red(`请设置${deployConfig.host}的服务器用户名和密码`));
     kill(process.pid);
   }
-  const { username, password, sudoPassword } = hostConfig;
+  const { username, password, sudoPassword, dockerDir } = hostConfig;
   const config = {
     host: deployConfig.host,
     port: 22,
@@ -24,7 +24,6 @@ export const handleDeploy = async (
   const project = deployConfig.deployProjectes.replace(/plm-vue-(.*)/, "$1");
   const envTag = tag.replace(`${image_name_remote}${project}:`, "");
   const envKey = `vue_${project}_tag`;
-  console.log(envTag, config, JSON.stringify(deployConfig));
   const { serverFolder } = deployConfig;
   const commands = `cd ${dockerDir}/${serverFolder}/ && \
     echo '${sudoPassword}' | sudo -S sed -i  "s/${envKey}=.*/${envKey}=${envTag}/g" .env && \

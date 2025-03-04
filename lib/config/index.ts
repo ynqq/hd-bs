@@ -30,6 +30,7 @@ export interface IRCConfigs {
       username: string;
       password: string;
       sudoPassword: string;
+      dockerDir: string;
     }
   >;
   /**test分支 需要合并的分支名 */
@@ -48,7 +49,6 @@ export interface IRCConfigs {
   gitPrefix: string;
   /**包含的项目 */
   projectes: string[];
-  dockerDir: string;
 }
 
 /**
@@ -70,7 +70,6 @@ export const getConfig = (): IRCConfigs => {
     gitPrefix: "",
     projectes: [],
     serverConfig: {},
-    dockerDir: "/mnt/v/.docker",
   });
   return config;
 };
