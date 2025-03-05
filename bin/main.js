@@ -14,7 +14,7 @@ import dayjs from "dayjs";
 import ora from "ora";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.6";
+const version = "0.0.7";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -107,7 +107,6 @@ const handleMergeBranch = async (project, branch, folderPath) => {
     const submoduleFolderName = projectSubModule[project] || submodule;
     if (submoduleFolderName) {
       const commands2 = [
-        `cd ${path$1.join(folderPath, `/${submoduleFolderName}`)}`,
         `git pull`,
         `git checkout ${branch}`,
         `git pull ${origin} ${branch}`,
@@ -115,7 +114,9 @@ const handleMergeBranch = async (project, branch, folderPath) => {
         `git push ${origin} ${branch}`
       ];
       try {
-        await execAsync(commands2.join("&&"));
+        await execAsync(commands2.join("&&"), "", {
+          cwd: path$1.join(folderPath, `/${submoduleFolderName}`)
+        });
       } catch (error) {
         console.log(
           chalk.red(
@@ -127,7 +128,6 @@ const handleMergeBranch = async (project, branch, folderPath) => {
       }
     }
     const commands = [
-      `cd ${path$1.join(folderPath, `/${project}`)}`,
       `git pull`,
       `git checkout ${branch}`,
       `git pull ${origin} ${mergeToTestBranch}`,
@@ -135,7 +135,9 @@ const handleMergeBranch = async (project, branch, folderPath) => {
       `git push ${origin} ${branch}`
     ];
     try {
-      await execAsync(commands.join("&&"));
+      await execAsync(commands.join("&&"), "", {
+        cwd: path$1.join(folderPath, `/${project}`)
+      });
     } catch (error) {
       console.log(
         chalk.red(`${project} ${mergeToTestBranch} -> test 合并失败`)
@@ -144,13 +146,11 @@ const handleMergeBranch = async (project, branch, folderPath) => {
       kill(process.pid);
     }
   } else {
-    const commands = [
-      `cd ${path$1.join(folderPath, `/${project}`)}`,
-      `git checkout ${branch}`,
-      `git pull ${origin} ${branch}`
-    ];
+    const commands = [`git checkout ${branch}`, `git pull ${origin} ${branch}`];
     try {
-      await execAsync(commands.join("&&"));
+      await execAsync(commands.join("&&"), "", {
+        cwd: path$1.join(folderPath, `/${project}`)
+      });
     } catch (error) {
       execAsync(`code ${path$1.join(folderPath, `/${project}`)}`);
       kill(process.pid);
@@ -182,11 +182,10 @@ const setSubmodule = async (project, branch, folderPath) => {
     filePath,
     fileData.replace(/(branch\s+=).*(\n)/, `$1${branch}$2`)
   );
-  const commands = [
-    `cd ${path$1.join(folderPath, `/${project}`)}`,
-    "git submodule deinit -f --all"
-  ];
-  await execAsync(commands.join("&&"));
+  const commands = ["git submodule deinit -f --all"];
+  await execAsync(commands.join("&&"), "", {
+    cwd: path$1.join(folderPath, `/${project}`)
+  });
   fs.rmSync(
     path$1.join(`${path$1.join(folderPath, `/${project}`)}`, ".git/modules"),
     {
@@ -195,11 +194,9 @@ const setSubmodule = async (project, branch, folderPath) => {
     }
   );
   const res = await execAsync(
-    [
-      `cd ${path$1.join(folderPath, `/${project}`)}`,
-      "git submodule init",
-      "git submodule update --remote"
-    ].join("&&")
+    ["git submodule init", "git submodule update --remote"].join("&&"),
+    "",
+    { cwd: path$1.join(folderPath, `/${project}`) }
   );
   const submoduleCommitId = (_b = (_a = res.split(" ").at(-1)) == null ? void 0 : _a.replace) == null ? void 0 : _b.call(_a, "\n", "");
   console.log(
@@ -220,14 +217,22 @@ const genLogFile = async ({ projectVersion, name }, item, folderPath) => {
   const cdCommand = `${path$1.join(folderPath, `/${item}`)}`;
   const version2 = projectVersion;
   const imageName = `local/vue/${name.slice(8)}`;
-  const branch = execSync(`cd ${cdCommand} && git rev-parse --abbrev-ref HEAD`).toString().trim();
-  const buildUserName = execSync(`cd ${cdCommand} && git show -s --format=%cn`).toString().trim();
+  const branch = execSync(`git rev-parse --abbrev-ref HEAD`, {
+    cwd: cdCommand
+  }).toString().trim();
+  const buildUserName = execSync(`git show -s --format=%cn`, { cwd: cdCommand }).toString().trim();
   const buildTime = dayjs().format("YYYY-MM-DD HH:mm:ss");
   const gitLog = execSync(
-    `cd ${cdCommand} && git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"提交人：%an <br> 提交时间：%ad <div>提交信息：%s</div><br>"`
+    `git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"提交人：%an <br> 提交时间：%ad <div>提交信息：%s</div><br>"`,
+    {
+      cwd: cdCommand
+    }
   ).toString().trim().replace(/\n/g, "");
   const gitCoreLog = execSync(
-    `cd ${cdCommand} && git submodule foreach git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"提交人：%an <br> 提交时间：%ad <div>提交信息：%s</div><br>"`
+    `git submodule foreach git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"提交人：%an <br> 提交时间：%ad <div>提交信息：%s</div><br>"`,
+    {
+      cwd: cdCommand
+    }
   ).toString().trim().replace(/\n/g, "").replace(/Entering '(plm-vue-)?core'/, "");
   const content = `{
   "branch": "${branch}",
@@ -256,13 +261,14 @@ const buildDockerImg = async (tag, imageName, folderPath, item) => {
   const project = item.replace(/plm-vue-(.*)/, "$1");
   let new_image_name_remote = `${image_name_remote}${project}`;
   const commands = [
-    `cd ${path$1.join(folderPath, `/${item}`)}`,
     `docker build -f ${LOCK_DOCKERFILE_NAME} -t ${imageName}:${tag} .`,
     `docker tag ${imageName}:${tag} ${new_image_name_remote}:${tag}`,
     `docker push ${new_image_name_remote}:${tag}`
   ];
   const sp = createOra("正在生成docker镜像");
-  await execAsync(commands.join("&&"));
+  await execAsync(commands.join("&&"), "", {
+    cwd: path$1.join(folderPath, `/${item}`)
+  });
   sp.text = "docker镜像生成成功";
   sp.color = "green";
   await sleep(300);
@@ -271,11 +277,12 @@ const buildDockerImg = async (tag, imageName, folderPath, item) => {
     fs.rmSync(path$1.join(folderPath, `/${item}/public/version.json`));
     fs.rmSync(path$1.join(folderPath, `/${item}/${LOCK_DOCKERFILE_NAME}`));
     const commands2 = [
-      `cd ${path$1.join(folderPath, `/${item}`)}`,
       `git checkout -- .gitmodules`,
       `git checkout -- .dockerignore`
     ];
-    await execAsync(commands2.join("&&"));
+    await execAsync(commands2.join("&&"), "", {
+      cwd: path$1.join(folderPath, `/${item}`)
+    });
   }
   sp.stop();
   return `${new_image_name_remote}:${tag}`;
@@ -283,14 +290,14 @@ const buildDockerImg = async (tag, imageName, folderPath, item) => {
 const runBuild = async (folderPath, item) => {
   const { buildCommand } = getConfig();
   const commands = [
-    `cd ${path$1.join(folderPath, `/${item}`)}`,
     `npm config set registry  https://registry.npmmirror.com`,
     `npm i --force`,
     `npm run ${buildCommand}`
   ];
   const sp = createOra("正在执行构建命令");
   await execAsync(commands.join("&&"), "构建失败", {
-    env: process.env
+    env: process.env,
+    cwd: path$1.join(folderPath, `/${item}`)
   });
   sp.text = "构建成功";
   sp.color = "green";
@@ -305,8 +312,8 @@ const initProject = async ({
   const { gitPrefix } = getConfig();
   if (!fs.existsSync(projectPath)) {
     const sp = await createOra(`正在初始化${project}`);
-    const commands = [`cd ${folderPath}`, `git clone ${gitPrefix}/${project}`];
-    await execAsync(commands.join("&&"));
+    const commands = [`git clone ${gitPrefix}/${project}`];
+    await execAsync(commands.join("&&"), "", { cwd: folderPath });
     sp.text = `${project}初始化完成`;
     await sleep(300);
     sp.stop();
@@ -402,9 +409,9 @@ const prompt$1 = createPromptModule$1();
 const masterName = "master";
 const createTag = async (project, tagName, branch, sp, folderPath) => {
   const { origin } = getConfig();
-  await execAsync([`cd ${folderPath}`, `git pull`].join("&&"));
-  const commamds = [`cd ${folderPath}`, `git tag -l "${tagName}"`];
-  const existTag = (await execAsync(commamds.join("&&"))).trim();
+  await execAsync([`git pull`].join("&&"), "", { cwd: folderPath });
+  const commamds = [`git tag -l "${tagName}"`];
+  const existTag = (await execAsync(commamds.join("&&"), "", { cwd: folderPath })).trim();
   if (existTag) {
     sp.stop();
     console.log(chalk.red(`${project}标签${tagName}已存在`));
@@ -433,8 +440,8 @@ const createTag = async (project, tagName, branch, sp, folderPath) => {
         console.log(chalk.red(`请先删除${project}远程的${tagName}标签`));
         kill$1(process.pid);
       }
-      const deleteTagCommands = [`cd ${folderPath}`, `git tag -d ${tagName}`];
-      await execAsync(deleteTagCommands.join("&&"));
+      const deleteTagCommands = [`git tag -d ${tagName}`];
+      await execAsync(deleteTagCommands.join("&&"), "", { cwd: folderPath });
     } else if (existAction === "pass") {
       return;
     }
@@ -443,7 +450,6 @@ const createTag = async (project, tagName, branch, sp, folderPath) => {
   sp.start();
   if (branch === "hotfix") {
     const createCommands = [
-      `cd ${folderPath}`,
       `git checkout ${branch}`,
       `git pull`,
       `git tag ${tagName}`,
@@ -453,10 +459,9 @@ const createTag = async (project, tagName, branch, sp, folderPath) => {
       `git merge ${origin}/${branch}`,
       `git push ${origin} ${masterName}`
     ];
-    await execAsync(createCommands.join("&&"));
+    await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
   } else {
     const createCommands = [
-      `cd ${folderPath}`,
       `git pull`,
       `git checkout ${masterName}`,
       `git pull`,
@@ -465,17 +470,18 @@ const createTag = async (project, tagName, branch, sp, folderPath) => {
       `git tag ${tagName}`,
       `git push ${origin} ${tagName}`
     ];
-    await execAsync(createCommands.join("&&"));
+    await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
   }
   try {
     const mergeMasterToDevCommands = [
-      `cd ${folderPath}`,
       `git checkout dev`,
       `git pull`,
       `git merge ${origin}/${masterName}`,
       `git push ${origin} dev`
     ];
-    await execAsync(mergeMasterToDevCommands.join("&&"));
+    await execAsync(mergeMasterToDevCommands.join("&&"), "", {
+      cwd: folderPath
+    });
   } catch (error) {
     console.log(
       chalk.red(`${project}${masterName}->dev合并失败，请联系开发进行处理`)
@@ -496,8 +502,8 @@ const createTags = async ({
   for (const item of tagProjects) {
     if (!fs.existsSync(path.join(folder, item))) {
       sp.text = `正在克隆${item}`;
-      const commands = [`cd ${folder}`, `git clone ${gitPrefix}/${item}`];
-      await execAsync(commands.join("&&"));
+      const commands = [`git clone ${gitPrefix}/${item}`];
+      await execAsync(commands.join("&&"), "", { cwd: folder });
     }
   }
   for (const item of initTags) {
@@ -538,11 +544,11 @@ program.command("init").argument("[dir]", "工作目录", "").description("初�
       fs.mkdirSync(dir2, { recursive: true });
     }
     if (!fs.existsSync(path$1.join(dir2, project))) {
-      commands.push([`cd ${dir2}`, `git clone ${gitPrefix}/${project}`]);
+      commands.push([`git clone ${gitPrefix}/${project}`]);
     }
   });
   for (const command of commands) {
-    await execAsync(command.join("&&"));
+    await execAsync(command.join("&&"), "", { cwd: dir });
   }
   sp.text = "初始化完成";
   await sleep(300);

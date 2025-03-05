@@ -47,11 +47,11 @@ program
         fs.mkdirSync(dir, { recursive: true });
       }
       if (!fs.existsSync(path.join(dir, project))) {
-        commands.push([`cd ${dir}`, `git clone ${gitPrefix}/${project}`]);
+        commands.push([`git clone ${gitPrefix}/${project}`]);
       }
     });
     for (const command of commands) {
-      await execAsync(command.join("&&"));
+      await execAsync(command.join("&&"), "", { cwd: dir });
     }
     sp.text = "初始化完成";
     await sleep(300);
@@ -194,7 +194,7 @@ program
     createTags({
       tagProjects: tagProjects.includes("all") ? allProjects : tagProjects,
       tagName: tag,
-      branch
+      branch,
     });
   });
 
