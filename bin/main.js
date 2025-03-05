@@ -14,7 +14,7 @@ import dayjs from "dayjs";
 import ora from "ora";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.5";
+const version = "0.0.6";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -489,10 +489,17 @@ const createTags = async ({
   tagName,
   branch
 }) => {
-  const { initProjectes, folder } = getConfig();
+  const { initProjectes, folder, gitPrefix } = getConfig();
   const initTags = tagProjects.filter((v) => initProjectes.includes(v));
   const projectTags = tagProjects.filter((v) => !initProjectes.includes(v));
   const sp = createOra(``);
+  for (const item of tagProjects) {
+    if (!fs.existsSync(path.join(folder, item))) {
+      sp.text = `正在克隆${item}`;
+      const commands = [`cd ${folder}`, `git clone ${gitPrefix}/${item}`];
+      await execAsync(commands.join("&&"));
+    }
+  }
   for (const item of initTags) {
     await createTag(item, tagName, branch, sp, path.join(folder, item));
   }

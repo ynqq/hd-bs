@@ -7,6 +7,7 @@ const { createPromptModule } = inquirer.default;
 import { kill } from "process";
 import { createOra } from "../ora";
 import { Ora } from "ora";
+import fs from "node:fs";
 
 const prompt = createPromptModule();
 const masterName = "master";
@@ -114,11 +115,18 @@ export const createTags = async ({
   tagName: string;
   branch: string;
 }) => {
-  const { initProjectes, folder } = getConfig();
+  const { initProjectes, folder, gitPrefix } = getConfig();
   // initProjectes 里面的分支必须优先合并
   const initTags = tagProjects.filter((v) => initProjectes.includes(v));
   const projectTags = tagProjects.filter((v) => !initProjectes.includes(v));
   const sp = createOra(``);
+  for (const item of tagProjects) {
+    if (!fs.existsSync(path.join(folder, item))) {
+      sp.text = `正在克隆${item}`;
+      const commands = [`cd ${folder}`, `git clone ${gitPrefix}/${item}`];
+      await execAsync(commands.join("&&"));
+    }
+  }
   for (const item of initTags) {
     await createTag(item, tagName, branch, sp, path.join(folder, item));
   }
