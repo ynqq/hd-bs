@@ -13,6 +13,7 @@ import { createOra } from "./ora";
 import { execAsync, sleep } from "./util";
 import { handleDeploy } from "./build/deploy";
 import { RunGitOptions } from "./build/types";
+import { createTags } from "./build/tag";
 
 const prompt = createPromptModule();
 
@@ -154,6 +155,47 @@ program
   .action(async (tag: string) => {
     const { deployConfig } = await getDeployConfig(false);
     await handleDeploy(deployConfig, tag);
+  });
+
+program
+  .command("tag")
+  .argument("<tag>")
+  .description("创建标签")
+  .action(async (tag: string) => {
+    if (!tag) {
+      console.log(chalk.red("请输入标签名称"));
+      kill(process.pid);
+    }
+    const { projectes, initProjectes, tagBranches } = getConfig();
+    const { branch } = await prompt({
+      type: "list",
+      name: "branch",
+      message: "请选择来源分支",
+      choices: tagBranches.map((v) => ({
+        name: v,
+        value: v,
+      })),
+    });
+    const allProjects = [...initProjectes, ...projectes];
+    const { tagProjects } = await prompt({
+      type: "checkbox",
+      name: "tagProjects",
+      message: "请选择需要创建标签的项目",
+      choices: [{ name: "全部", value: "all", checked: true }].concat(
+        allProjects.map((v) => {
+          return {
+            name: v,
+            value: v,
+            checked: false,
+          };
+        })
+      ),
+    });
+    createTags({
+      tagProjects: tagProjects.includes("all") ? allProjects : tagProjects,
+      tagName: tag,
+      branch
+    });
   });
 
 const Config = new Command("config");

@@ -49,6 +49,8 @@ export interface IRCConfigs {
   gitPrefix: string;
   /**包含的项目 */
   projectes: string[];
+  /**可以进行打标签的分支 比如["test"] 将会进行 test -> master合并 然后创建标签 */
+  tagBranches: string[];
 }
 
 /**
@@ -70,6 +72,7 @@ export const getConfig = (): IRCConfigs => {
     gitPrefix: "",
     projectes: [],
     serverConfig: {},
+    tagBranches: ["hotfix", "test"],
   });
   return config;
 };

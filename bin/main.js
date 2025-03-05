@@ -14,7 +14,7 @@ import dayjs from "dayjs";
 import ora from "ora";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.4";
+const version = "0.0.5";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -32,7 +32,8 @@ const getConfig = () => {
     initProjectes: [],
     gitPrefix: "",
     projectes: [],
-    serverConfig: {}
+    serverConfig: {},
+    tagBranches: ["hotfix", "test"]
   });
   return config;
 };
@@ -396,6 +397,113 @@ const handleDeploy = async (deployConfig, tag) => {
     });
   }).connect(config);
 };
+const { createPromptModule: createPromptModule$1 } = inquirer.default;
+const prompt$1 = createPromptModule$1();
+const masterName = "master";
+const createTag = async (project, tagName, branch, sp, folderPath) => {
+  const { origin } = getConfig();
+  await execAsync([`cd ${folderPath}`, `git pull`].join("&&"));
+  const commamds = [`cd ${folderPath}`, `git tag -l "${tagName}"`];
+  const existTag = (await execAsync(commamds.join("&&"))).trim();
+  if (existTag) {
+    sp.stop();
+    console.log(chalk.red(`${project}标签${tagName}已存在`));
+    const { existAction } = await prompt$1({
+      type: "list",
+      name: "existAction",
+      message: `${project}标签${tagName}已存在，请选择下一步操作。`,
+      choices: [
+        { name: "删除并重新创建", value: "delete" },
+        { name: "跳过此项目", value: "pass" },
+        { name: "终止操作", value: "stop" }
+      ]
+    });
+    if (existAction === "stop") {
+      kill$1(process.pid);
+      return;
+    }
+    if (existAction === "delete") {
+      sp.stop();
+      const { remoteTagIsDelete } = await prompt$1({
+        type: "confirm",
+        message: `${project}远程的${tagName}是否已经删除？`,
+        name: "remoteTagIsDelete"
+      });
+      if (!remoteTagIsDelete) {
+        console.log(chalk.red(`请先删除${project}远程的${tagName}标签`));
+        kill$1(process.pid);
+      }
+      const deleteTagCommands = [`cd ${folderPath}`, `git tag -d ${tagName}`];
+      await execAsync(deleteTagCommands.join("&&"));
+    } else if (existAction === "pass") {
+      return;
+    }
+  }
+  sp.text = `正在创建${project}的标签: ${tagName}`;
+  sp.start();
+  if (branch === "hotfix") {
+    const createCommands = [
+      `cd ${folderPath}`,
+      `git checkout ${branch}`,
+      `git pull`,
+      `git tag ${tagName}`,
+      `git push ${origin} ${tagName}`,
+      `git checkout ${masterName}`,
+      `git pull`,
+      `git merge ${origin}/${branch}`,
+      `git push ${origin} ${masterName}`
+    ];
+    await execAsync(createCommands.join("&&"));
+  } else {
+    const createCommands = [
+      `cd ${folderPath}`,
+      `git pull`,
+      `git checkout ${masterName}`,
+      `git pull`,
+      `git merge ${origin}/${branch}`,
+      `git push ${origin} ${masterName}`,
+      `git tag ${tagName}`,
+      `git push ${origin} ${tagName}`
+    ];
+    await execAsync(createCommands.join("&&"));
+  }
+  try {
+    const mergeMasterToDevCommands = [
+      `cd ${folderPath}`,
+      `git checkout dev`,
+      `git pull`,
+      `git merge ${origin}/${masterName}`,
+      `git push ${origin} dev`
+    ];
+    await execAsync(mergeMasterToDevCommands.join("&&"));
+  } catch (error) {
+    console.log(
+      chalk.red(`${project}${masterName}->dev合并失败，请联系开发进行处理`)
+    );
+  }
+  sp.text = `${project}标签创建完成`;
+  await sleep(500);
+};
+const createTags = async ({
+  tagProjects,
+  tagName,
+  branch
+}) => {
+  const { initProjectes, folder } = getConfig();
+  const initTags = tagProjects.filter((v) => initProjectes.includes(v));
+  const projectTags = tagProjects.filter((v) => !initProjectes.includes(v));
+  const sp = createOra(``);
+  for (const item of initTags) {
+    await createTag(item, tagName, branch, sp, path.join(folder, item));
+  }
+  for (const item of projectTags) {
+    await createTag(item, tagName, branch, sp, path.join(folder, item));
+  }
+  sp.stop();
+  console.log(
+    chalk.green(`项目: ${tagProjects.join(",")}的${tagName}标签全部创建完成`)
+  );
+};
 const { createPromptModule } = inquirer.default;
 const prompt = createPromptModule();
 program.version(version, "-v, --version");
@@ -512,6 +620,42 @@ program.command("bs").option("-p", "跳过build").description("构建并且部�
 program.command("d").argument("<tag>").description("只部署").action(async (tag) => {
   const { deployConfig } = await getDeployConfig(false);
   await handleDeploy(deployConfig, tag);
+});
+program.command("tag").argument("<tag>").description("创建标签").action(async (tag) => {
+  if (!tag) {
+    console.log(chalk.red("请输入标签名称"));
+    kill$1(process.pid);
+  }
+  const { projectes, initProjectes, tagBranches } = getConfig();
+  const { branch } = await prompt({
+    type: "list",
+    name: "branch",
+    message: "请选择来源分支",
+    choices: tagBranches.map((v) => ({
+      name: v,
+      value: v
+    }))
+  });
+  const allProjects = [...initProjectes, ...projectes];
+  const { tagProjects } = await prompt({
+    type: "checkbox",
+    name: "tagProjects",
+    message: "请选择需要创建标签的项目",
+    choices: [{ name: "全部", value: "all", checked: true }].concat(
+      allProjects.map((v) => {
+        return {
+          name: v,
+          value: v,
+          checked: false
+        };
+      })
+    )
+  });
+  createTags({
+    tagProjects: tagProjects.includes("all") ? allProjects : tagProjects,
+    tagName: tag,
+    branch
+  });
 });
 const Config = new Command("config");
 Config.command("ls").action(() => {
