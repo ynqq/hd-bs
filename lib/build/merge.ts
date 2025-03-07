@@ -74,7 +74,11 @@ export const handleMergeBranch = async (
       kill(process.pid);
     }
   } else {
-    const commands = [`git checkout ${branch}`, `git pull ${origin} ${branch}`];
+    const commands = [
+      `git fetch ${origin}`,
+      `git checkout ${branch}`,
+      `git merge ${origin}/${branch}`,
+    ];
     try {
       await execAsync(commands.join("&&"), "", {
         cwd: path.join(folderPath, `/${project}`),

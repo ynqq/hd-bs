@@ -58,7 +58,7 @@ program
     sp.stop();
   });
 
-const getDeployConfig = async (passBuild: boolean) => {
+const getDeployConfig = async (passBuild: boolean, onlyBuild?: boolean) => {
   const { folder, branches, server, projectes } = getConfig();
   // 选择需要部署的项目
   const { deployProjectes } = await prompt({
@@ -84,8 +84,11 @@ const getDeployConfig = async (passBuild: boolean) => {
       value: v,
     })),
   });
-  const serverConfig = server[deployBranch];
-  if (!serverConfig || !serverConfig.host || !serverConfig.serverFolder) {
+  const serverConfig = server[deployBranch] || {};
+  if (
+    !onlyBuild &&
+    (!serverConfig || !serverConfig.host || !serverConfig.serverFolder)
+  ) {
     console.log(
       chalk.red(`请先打开[ ${getRCPath()} ], 设置server.${deployBranch}的信息`)
     );
@@ -111,6 +114,7 @@ program
   .description("只构建")
   .action(async (options) => {
     const p = options.passBuild || process.argv.includes("-p");
+
     const { folder } = getConfig();
     if (!folder) {
       console.log(chalk.red(`请使用[hd-bs init <dir>]进行设置`));
@@ -118,7 +122,7 @@ program
       return;
     }
     await execAsync(`docker info`, "请先安装并启动docker");
-    const { deployConfig } = await getDeployConfig(p);
+    const { deployConfig } = await getDeployConfig(p, true);
     console.log(
       chalk.green(`所选配置项: ${JSON.stringify(deployConfig, null, 2)}`)
     );

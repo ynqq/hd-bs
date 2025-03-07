@@ -14,7 +14,7 @@ import dayjs from "dayjs";
 import ora from "ora";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.7";
+const version = "0.0.8";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -146,7 +146,11 @@ const handleMergeBranch = async (project, branch, folderPath) => {
       kill(process.pid);
     }
   } else {
-    const commands = [`git checkout ${branch}`, `git pull ${origin} ${branch}`];
+    const commands = [
+      `git fetch ${origin}`,
+      `git checkout ${branch}`,
+      `git merge ${origin}/${branch}`
+    ];
     try {
       await execAsync(commands.join("&&"), "", {
         cwd: path$1.join(folderPath, `/${project}`)
@@ -554,7 +558,7 @@ program.command("init").argument("[dir]", "工作目录", "").description("初�
   await sleep(300);
   sp.stop();
 });
-const getDeployConfig = async (passBuild) => {
+const getDeployConfig = async (passBuild, onlyBuild) => {
   const { folder, branches, server, projectes } = getConfig();
   const { deployProjectes } = await prompt({
     type: "list",
@@ -578,8 +582,8 @@ const getDeployConfig = async (passBuild) => {
       value: v
     }))
   });
-  const serverConfig = server[deployBranch];
-  if (!serverConfig || !serverConfig.host || !serverConfig.serverFolder) {
+  const serverConfig = server[deployBranch] || {};
+  if (!onlyBuild && (!serverConfig || !serverConfig.host || !serverConfig.serverFolder)) {
     console.log(
       chalk.red(`请先打开[ ${getRCPath()} ], 设置server.${deployBranch}的信息`)
     );
@@ -606,7 +610,7 @@ program.command("b").description("只构建").action(async (options) => {
     return;
   }
   await execAsync(`docker info`, "请先安装并启动docker");
-  const { deployConfig } = await getDeployConfig(p);
+  const { deployConfig } = await getDeployConfig(p, true);
   console.log(
     chalk.green(`所选配置项: ${JSON.stringify(deployConfig, null, 2)}`)
   );
