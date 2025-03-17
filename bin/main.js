@@ -14,7 +14,7 @@ import dayjs from "dayjs";
 import ora from "ora";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.8";
+const version = "0.0.9";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -351,7 +351,7 @@ const handleBuild = async (options) => {
   };
   await initProject(pubOptions);
   if (!passBuild) {
-    handleMergeBranch(project, branch, folderPath);
+    await handleMergeBranch(project, branch, folderPath);
   }
   const pkg = await getPkgConfig(project, folderPath);
   if (pkg) {
@@ -601,7 +601,7 @@ const getDeployConfig = async (passBuild, onlyBuild) => {
     deployConfig
   };
 };
-program.command("b").description("只构建").action(async (options) => {
+program.command("b").option("-p", "跳过build").description("只构建").action(async (options) => {
   const p = options.passBuild || process.argv.includes("-p");
   const { folder } = getConfig();
   if (!folder) {

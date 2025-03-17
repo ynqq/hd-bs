@@ -111,6 +111,7 @@ const getDeployConfig = async (passBuild: boolean, onlyBuild?: boolean) => {
 
 program
   .command("b")
+  .option("-p", "跳过build")
   .description("只构建")
   .action(async (options) => {
     const p = options.passBuild || process.argv.includes("-p");

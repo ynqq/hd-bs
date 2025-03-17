@@ -323,7 +323,7 @@ export const handleBuild = async (options: RunGitOptions) => {
   };
   await initProject(pubOptions);
   if (!passBuild) {
-    handleMergeBranch(project, branch, folderPath);
+    await handleMergeBranch(project, branch, folderPath);
   }
   const pkg = await getPkgConfig(project, folderPath);
   if (pkg) {
