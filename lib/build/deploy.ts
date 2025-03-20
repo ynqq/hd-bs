@@ -14,7 +14,7 @@ export const handleDeploy = async (
     console.log(chalk.red(`请设置${deployConfig.host}的服务器用户名和密码`));
     kill(process.pid);
   }
-  const { username, password, sudoPassword, dockerDir } = hostConfig;
+  const { username, password, sudoPassword, dockerDir, noRoot } = hostConfig;
   const config = {
     host: deployConfig.host,
     port: 22,
@@ -25,11 +25,12 @@ export const handleDeploy = async (
   const envTag = tag.replace(`${image_name_remote}${project}:`, "");
   const envKey = `vue_${project}_tag`;
   const { serverFolder } = deployConfig;
+  const root = noRoot ? '' : 'sudo -S'
   const commands = `cd ${dockerDir}/${serverFolder}/ && \
-    echo '${sudoPassword}' | sudo -S sed -i  "s/${envKey}=.*/${envKey}=${envTag}/g" .env && \
-    echo '${sudoPassword}' | sudo -S docker-compose build && \
-    echo '${sudoPassword}' | sudo -S docker-compose stop web && \
-    echo '${sudoPassword}' | sudo -S docker-compose up -d web`;
+    echo '${sudoPassword}' | ${root} sed -i  "s/${envKey}=.*/${envKey}=${envTag}/g" .env && \
+    echo '${sudoPassword}' | ${root} docker-compose build && \
+    echo '${sudoPassword}' | ${root} docker-compose stop web && \
+    echo '${sudoPassword}' | ${root} docker-compose up -d web`;
   const conn = new Client();
   conn
     .on("ready", () => {

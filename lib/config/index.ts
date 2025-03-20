@@ -31,6 +31,7 @@ export interface IRCConfigs {
       password: string;
       sudoPassword: string;
       dockerDir: string;
+      noRoot?: boolean
     }
   >;
   /**test分支 需要合并的分支名 */
