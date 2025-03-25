@@ -121,7 +121,7 @@ const setSubmodule = async (
   const fileData = fs.readFileSync(filePath, "utf-8");
   fs.writeFileSync(
     filePath,
-    fileData.replace(/(branch\s+=).*(\n)/, `$1${branch}$2`)
+    fileData.replace(/(branch\s+=).*(\n?)/, `$1${branch}$2`)
   );
   const commands = ["git submodule deinit -f --all"];
   await execAsync(commands.join("&&"), "", {

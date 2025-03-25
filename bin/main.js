@@ -14,7 +14,7 @@ import dayjs from "dayjs";
 import ora from "ora";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.9";
+const version = "0.0.11";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -184,7 +184,7 @@ const setSubmodule = async (project, branch, folderPath) => {
   const fileData = fs.readFileSync(filePath, "utf-8");
   fs.writeFileSync(
     filePath,
-    fileData.replace(/(branch\s+=).*(\n)/, `$1${branch}$2`)
+    fileData.replace(/(branch\s+=).*(\n?)/, `$1${branch}$2`)
   );
   const commands = ["git submodule deinit -f --all"];
   await execAsync(commands.join("&&"), "", {
