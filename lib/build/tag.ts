@@ -1,6 +1,6 @@
 import path from "path";
 import { getConfig } from "../config";
-import { execAsync, sleep } from "../util";
+import { execAsync, hasconflict, sleep } from "../util";
 import chalk from "chalk";
 import * as inquirer from "inquirer";
 const { createPromptModule } = inquirer.default;
@@ -72,20 +72,56 @@ const createTag = async (
       `git checkout ${masterName}`,
       `git pull`,
       `git merge ${origin}/${branch}`,
-      `git push ${origin} ${masterName}`,
     ];
     await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
+    const conflict = await hasconflict(folderPath);
+    if (conflict) {
+      sp.stop();
+      console.log(
+        chalk.red(
+          `${project}:${branch}->${masterName}合并存在冲突，请联系开发进行处理`
+        )
+      );
+      try {
+        execAsync(`code ${folderPath}`);
+      } catch (error) {}
+      kill(process.pid);
+      return;
+    }
+    await execAsync([`git push ${origin} ${masterName}`].join("&&"), "", {
+      cwd: folderPath,
+    });
   } else {
     const createCommands = [
       `git pull`,
       `git checkout ${masterName}`,
       `git pull`,
       `git merge ${origin}/${branch}`,
-      `git push ${origin} ${masterName}`,
-      `git tag ${tagName}`,
-      `git push ${origin} ${tagName}`,
     ];
     await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
+    const conflict = await hasconflict(folderPath);
+    if (conflict) {
+      sp.stop();
+      try {
+        execAsync(`code ${folderPath}`);
+      } catch (error) {}
+      console.log(
+        chalk.red(
+          `${project}:${branch}->${masterName}合并存在冲突，请联系开发进行处理`
+        )
+      );
+      kill(process.pid);
+      return;
+    }
+    await execAsync(
+      [
+        `git push ${origin} ${masterName}`,
+        `git tag ${tagName}`,
+        `git push ${origin} ${tagName}`,
+      ].join("&&"),
+      "",
+      { cwd: folderPath }
+    );
   }
   try {
     // master -> dev允许失败

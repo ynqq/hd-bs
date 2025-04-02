@@ -9,12 +9,12 @@ import { kill as kill$1 } from "process";
 import * as inquirer from "inquirer";
 import path$1 from "node:path";
 import { exec } from "child_process";
+import ora from "ora";
 import { execSync } from "node:child_process";
 import dayjs from "dayjs";
-import ora from "ora";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.11";
+const version = "0.0.12";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -72,6 +72,11 @@ const setBranches = (newBranch, type, serverHost, serverFolder) => {
   );
   console.log(chalk.green(type === 0 ? "新增成功" : "删除成功"));
 };
+const createOra = (text, color = "yellow") => {
+  const spinner = ora(text).start();
+  spinner.color = color;
+  return spinner;
+};
 const sleep = (time = 300) => {
   return new Promise((resolve) => {
     setTimeout(resolve, time);
@@ -89,10 +94,44 @@ const execAsync = (commond, msg, options) => {
     });
   });
 };
-const createOra = (text, color = "yellow") => {
-  const spinner = ora(text).start();
-  spinner.color = color;
-  return spinner;
+const getGitStatus = async (cwd) => {
+  const status = await execAsync("git status -s", "", { cwd });
+  const lines = status.trim().split("\n");
+  return lines.map((line) => {
+    const [status2, file] = line.trim().split(/\s+(.+)/);
+    return { status: status2, file };
+  });
+};
+const hasconflict = async (cwd) => {
+  const status = await getGitStatus(cwd);
+  return status.some((item) => {
+    return item.status.includes("UU");
+  });
+};
+const checkVersion = async (prompt2) => {
+  const sp = createOra("正在检查版本");
+  let npmVersion = await execAsync("npm view hd-bs version");
+  npmVersion = npmVersion.trim().replace(/\n/, "");
+  sp.stop();
+  if (npmVersion !== version) {
+    prompt2({
+      type: "confirm",
+      name: "update",
+      message: `当前版本${version}，最新版本${npmVersion}，是否更新？`,
+      default: false
+    }).then(async ({ update }) => {
+      if (update) {
+        sp.spinner = "monkey";
+        sp.text = `正在更新至${npmVersion}`;
+        sp.start();
+        await execAsync(`npm i hd-bs@latest -g`, "更新中...");
+        sp.text = "更新完成";
+        sp.spinner = "smiley";
+        await sleep(1e3);
+        sp.stop();
+      }
+    });
+  }
 };
 const LOCK_DOCKERFILE_NAME = `lock.Dockerfile`;
 const handleMergeBranch = async (project, branch, folderPath) => {
@@ -461,21 +500,59 @@ const createTag = async (project, tagName, branch, sp, folderPath) => {
       `git push ${origin} ${tagName}`,
       `git checkout ${masterName}`,
       `git pull`,
-      `git merge ${origin}/${branch}`,
-      `git push ${origin} ${masterName}`
+      `git merge ${origin}/${branch}`
     ];
     await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
+    const conflict = await hasconflict(folderPath);
+    if (conflict) {
+      sp.stop();
+      console.log(
+        chalk.red(
+          `${project}:${branch}->${masterName}合并存在冲突，请联系开发进行处理`
+        )
+      );
+      try {
+        execAsync(`code ${folderPath}`);
+      } catch (error) {
+      }
+      kill$1(process.pid);
+      return;
+    }
+    await execAsync([`git push ${origin} ${masterName}`].join("&&"), "", {
+      cwd: folderPath
+    });
   } else {
     const createCommands = [
       `git pull`,
       `git checkout ${masterName}`,
       `git pull`,
-      `git merge ${origin}/${branch}`,
-      `git push ${origin} ${masterName}`,
-      `git tag ${tagName}`,
-      `git push ${origin} ${tagName}`
+      `git merge ${origin}/${branch}`
     ];
     await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
+    const conflict = await hasconflict(folderPath);
+    if (conflict) {
+      sp.stop();
+      try {
+        execAsync(`code ${folderPath}`);
+      } catch (error) {
+      }
+      console.log(
+        chalk.red(
+          `${project}:${branch}->${masterName}合并存在冲突，请联系开发进行处理`
+        )
+      );
+      kill$1(process.pid);
+      return;
+    }
+    await execAsync(
+      [
+        `git push ${origin} ${masterName}`,
+        `git tag ${tagName}`,
+        `git push ${origin} ${tagName}`
+      ].join("&&"),
+      "",
+      { cwd: folderPath }
+    );
   }
   try {
     const mergeMasterToDevCommands = [
@@ -526,6 +603,7 @@ const { createPromptModule } = inquirer.default;
 const prompt = createPromptModule();
 program.version(version, "-v, --version");
 program.command("init").argument("[dir]", "工作目录", "").description("初始化工作目录").action(async (dir) => {
+  await checkVersion(prompt);
   const sp = createOra("正在进行初始化");
   setConfig({
     folder: dir
@@ -603,6 +681,7 @@ const getDeployConfig = async (passBuild, onlyBuild) => {
   };
 };
 program.command("b").option("-p", "跳过build").description("只构建").action(async (options) => {
+  await checkVersion(prompt);
   const p = options.passBuild || process.argv.includes("-p");
   const { folder } = getConfig();
   if (!folder) {
@@ -618,6 +697,7 @@ program.command("b").option("-p", "跳过build").description("只构建").action
   await handleBuild(deployConfig);
 });
 program.command("bs").option("-p", "跳过build").description("构建并且部署").action(async (options) => {
+  await checkVersion(prompt);
   const p = options.passBuild || process.argv.includes("-p");
   const { folder } = getConfig();
   if (!folder) {
@@ -636,10 +716,12 @@ program.command("bs").option("-p", "跳过build").description("构建并且部�
   }
 });
 program.command("d").argument("<tag>").description("只部署").action(async (tag) => {
+  await checkVersion(prompt);
   const { deployConfig } = await getDeployConfig(false);
   await handleDeploy(deployConfig, tag);
 });
 program.command("tag").argument("<tag>").description("创建标签").action(async (tag) => {
+  await checkVersion(prompt);
   if (!tag) {
     console.log(chalk.red("请输入标签名称"));
     kill$1(process.pid);

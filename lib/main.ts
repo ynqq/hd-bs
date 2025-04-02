@@ -10,7 +10,7 @@ const { createPromptModule } = inquirer.default;
 import { handleBuild } from "./build/merge";
 import path from "node:path";
 import { createOra } from "./ora";
-import { execAsync, sleep } from "./util";
+import { checkVersion, execAsync, sleep } from "./util";
 import { handleDeploy } from "./build/deploy";
 import { RunGitOptions } from "./build/types";
 import { createTags } from "./build/tag";
@@ -24,6 +24,7 @@ program
   .argument("[dir]", "工作目录", "")
   .description("初始化工作目录")
   .action(async (dir) => {
+    await checkVersion(prompt)
     const sp = createOra("正在进行初始化");
     setConfig({
       folder: dir,
@@ -114,6 +115,7 @@ program
   .option("-p", "跳过build")
   .description("只构建")
   .action(async (options) => {
+    await checkVersion(prompt)
     const p = options.passBuild || process.argv.includes("-p");
 
     const { folder } = getConfig();
@@ -135,6 +137,7 @@ program
   .option("-p", "跳过build")
   .description("构建并且部署")
   .action(async (options) => {
+    await checkVersion(prompt)
     const p = options.passBuild || process.argv.includes("-p");
     const { folder } = getConfig();
     if (!folder) {
@@ -158,6 +161,7 @@ program
   .argument("<tag>")
   .description("只部署")
   .action(async (tag: string) => {
+    await checkVersion(prompt)
     const { deployConfig } = await getDeployConfig(false);
     await handleDeploy(deployConfig, tag);
   });
@@ -167,6 +171,7 @@ program
   .argument("<tag>")
   .description("创建标签")
   .action(async (tag: string) => {
+    await checkVersion(prompt)
     if (!tag) {
       console.log(chalk.red("请输入标签名称"));
       kill(process.pid);
