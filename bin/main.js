@@ -14,7 +14,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.13";
+const version = "0.0.14";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -114,7 +114,7 @@ const checkVersion = async (prompt2) => {
   npmVersion = npmVersion.trim().replace(/\n/, "");
   sp.stop();
   if (npmVersion !== version) {
-    prompt2({
+    await prompt2({
       type: "confirm",
       name: "update",
       message: `当前版本${version}，最新版本${npmVersion}，是否更新？`,
