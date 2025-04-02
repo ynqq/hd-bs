@@ -29,6 +29,7 @@ export const handleMergeBranch = async (
     origin,
   } = getConfig();
   const sp = createOra("正在拉取最新代码");
+  sp.spinner = 'fingerDance'
   if (branch === "test" && mergeToTestBranch) {
     // test 需要进行合并
     const submoduleFolderName = projectSubModule[project] || submodule;
@@ -233,6 +234,7 @@ const buildDockerImg = async (
     `docker push ${new_image_name_remote}:${tag}`,
   ];
   const sp = createOra("正在生成docker镜像");
+  sp.spinner = 'fistBump'
   await execAsync(commands.join("&&"), "", {
     cwd: path.join(folderPath, `/${item}`),
   });
@@ -265,6 +267,7 @@ const runBuild = async (folderPath: string, item: string) => {
     `npm run ${buildCommand}`,
   ];
   const sp = createOra("正在执行构建命令");
+  sp.spinner = 'soccerHeader'
   await execAsync(commands.join("&&"), "构建失败", {
     env: process.env,
     cwd: path.join(folderPath, `/${item}`),

@@ -14,7 +14,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.12";
+const version = "0.0.13";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -142,6 +142,7 @@ const handleMergeBranch = async (project, branch, folderPath) => {
     origin
   } = getConfig();
   const sp = createOra("正在拉取最新代码");
+  sp.spinner = "fingerDance";
   if (branch === "test" && mergeToTestBranch) {
     const submoduleFolderName = projectSubModule[project] || submodule;
     if (submoduleFolderName) {
@@ -309,6 +310,7 @@ const buildDockerImg = async (tag, imageName, folderPath, item) => {
     `docker push ${new_image_name_remote}:${tag}`
   ];
   const sp = createOra("正在生成docker镜像");
+  sp.spinner = "fistBump";
   await execAsync(commands.join("&&"), "", {
     cwd: path$1.join(folderPath, `/${item}`)
   });
@@ -338,6 +340,7 @@ const runBuild = async (folderPath, item) => {
     `npm run ${buildCommand}`
   ];
   const sp = createOra("正在执行构建命令");
+  sp.spinner = "soccerHeader";
   await execAsync(commands.join("&&"), "构建失败", {
     env: process.env,
     cwd: path$1.join(folderPath, `/${item}`)
