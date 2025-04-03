@@ -166,13 +166,35 @@ export const createTags = async ({
   }
   for (const item of initTags) {
     await createTag(item, tagName, branch, sp, path.join(folder, item));
+    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
   }
 
   for (const item of projectTags) {
     await createTag(item, tagName, branch, sp, path.join(folder, item));
+    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
   }
-  sp.stop();
-  console.log(
-    chalk.green(`项目: ${tagProjects.join(",")}的${tagName}标签全部创建完成`)
+  sp.text = "开始获取远程的标签";
+  sp.spinner = "aesthetic";
+  const allProjects = [...initTags, ...projectTags];
+  const resList = await Promise.allSettled(
+    allProjects.map((item) => {
+      return (async () => {
+        try {
+          await execAsync(`git fetch origin tag ${tagName}`, "", {
+            cwd: path.join(folder, item),
+          });
+        } catch (error) {
+          return Promise.reject(item);
+        }
+      })();
+    })
   );
+  const errs = resList.filter((v) => v.status === "rejected");
+  if (errs.length) {
+    console.log(
+      chalk.red(errs.map((v) => v.reason).join(",")) + "标签创建失败"
+    );
+  } else {
+    sp.succeed("所有标签创建完成");
+  }
 };

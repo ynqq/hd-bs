@@ -3,6 +3,9 @@ import { exec } from "child_process";
 import { version } from "../../package.json";
 import { PromptModule } from "inquirer";
 import { createOra } from "../ora";
+import { existsSync } from "fs";
+import { join } from "path";
+import { getConfig } from "../config";
 
 export const sleep = (time: number = 300) => {
   return new Promise((resolve) => {
@@ -14,19 +17,23 @@ export const execAsync = <
   R extends string | Buffer = string,
   T extends Parameters<typeof exec> = Parameters<typeof exec>
 >(
-  commond: T[0],
+  commond: T[0] | T[0][],
   msg?: string,
   options?: T[1]
 ) => {
   return new Promise<R>((resolve, reject) => {
-    const ex = exec(commond, options, (error, stdout) => {
-      if (error) {
-        msg && console.error(chalk.red(msg));
-        reject(error);
-        ex.kill();
+    const ex = exec(
+      Array.isArray(commond) ? commond.join("&&") : commond,
+      options,
+      (error, stdout) => {
+        if (error) {
+          msg && console.error(chalk.red(msg));
+          reject(error);
+          ex.kill();
+        }
+        resolve(stdout as R);
       }
-      resolve(stdout as R);
-    });
+    );
   });
 };
 
@@ -70,4 +77,28 @@ export const checkVersion = async (prompt: PromptModule) => {
       }
     });
   }
+};
+
+export const checkProjectDir = async (projects: string[], branch?: string) => {
+  const sp = createOra("项目初始化");
+  const { folder, gitPrefix } = getConfig();
+  for (const item of projects) {
+    const projectPath = join(folder, item);
+    if (!existsSync(projectPath)) {
+      sp.text = `正在克隆${item}`;
+      const commands = [`git clone ${gitPrefix}/${item}`];
+      await execAsync(commands.join("&&"), "", { cwd: folder });
+    }
+    if (branch) {
+      sp.text = `${item}正在清理更改并且换到${branch}`;
+      await execAsync(
+        `git checkout -q -- . && git checkout ${branch} && git pull`,
+        "",
+        {
+          cwd: projectPath,
+        }
+      );
+    }
+  }
+  sp.succeed("项目切换完成");
 };

@@ -2,7 +2,7 @@
 import { program, Command } from "commander";
 import chalk from "chalk";
 import fs from "node:fs";
-import path from "path";
+import path, { join } from "path";
 import rc from "rc";
 import os from "os";
 import { kill as kill$1 } from "process";
@@ -10,11 +10,12 @@ import * as inquirer from "inquirer";
 import path$1 from "node:path";
 import { exec } from "child_process";
 import ora from "ora";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.14";
+const version = "0.0.16";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -33,7 +34,8 @@ const getConfig = () => {
     gitPrefix: "",
     projectes: [],
     serverConfig: {},
-    tagBranches: ["hotfix", "test"]
+    tagBranches: ["hotfix", "test"],
+    packageKeys: ["projectVersion", "pkgImage", "customUrl", "thirdPartyUrl"]
   });
   return config;
 };
@@ -84,14 +86,18 @@ const sleep = (time = 300) => {
 };
 const execAsync = (commond, msg, options) => {
   return new Promise((resolve, reject) => {
-    const ex = exec(commond, options, (error, stdout) => {
-      if (error) {
-        msg && console.error(chalk.red(msg));
-        reject(error);
-        ex.kill();
+    const ex = exec(
+      Array.isArray(commond) ? commond.join("&&") : commond,
+      options,
+      (error, stdout) => {
+        if (error) {
+          msg && console.error(chalk.red(msg));
+          reject(error);
+          ex.kill();
+        }
+        resolve(stdout);
       }
-      resolve(stdout);
-    });
+    );
   });
 };
 const getGitStatus = async (cwd) => {
@@ -132,6 +138,29 @@ const checkVersion = async (prompt2) => {
       }
     });
   }
+};
+const checkProjectDir = async (projects, branch) => {
+  const sp = createOra("项目初始化");
+  const { folder, gitPrefix } = getConfig();
+  for (const item of projects) {
+    const projectPath = join(folder, item);
+    if (!existsSync(projectPath)) {
+      sp.text = `正在克隆${item}`;
+      const commands = [`git clone ${gitPrefix}/${item}`];
+      await execAsync(commands.join("&&"), "", { cwd: folder });
+    }
+    if (branch) {
+      sp.text = `${item}正在清理更改并且换到${branch}`;
+      await execAsync(
+        `git checkout -q -- . && git checkout ${branch} && git pull`,
+        "",
+        {
+          cwd: projectPath
+        }
+      );
+    }
+  }
+  sp.succeed("项目切换完成");
 };
 const LOCK_DOCKERFILE_NAME = `lock.Dockerfile`;
 const handleMergeBranch = async (project, branch, folderPath) => {
@@ -593,14 +622,54 @@ const createTags = async ({
   }
   for (const item of initTags) {
     await createTag(item, tagName, branch, sp, path.join(folder, item));
+    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
   }
   for (const item of projectTags) {
     await createTag(item, tagName, branch, sp, path.join(folder, item));
+    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
   }
-  sp.stop();
-  console.log(
-    chalk.green(`项目: ${tagProjects.join(",")}的${tagName}标签全部创建完成`)
+  sp.text = "开始获取远程的标签";
+  sp.spinner = "aesthetic";
+  const allProjects = [...initTags, ...projectTags];
+  const resList = await Promise.allSettled(
+    allProjects.map((item) => {
+      return (async () => {
+        try {
+          await execAsync(`git fetch origin tag ${tagName}`, "", {
+            cwd: path.join(folder, item)
+          });
+        } catch (error) {
+          return Promise.reject(item);
+        }
+      })();
+    })
   );
+  const errs = resList.filter((v) => v.status === "rejected");
+  if (errs.length) {
+    console.log(
+      chalk.red(errs.map((v) => v.reason).join(",")) + "标签创建失败"
+    );
+  } else {
+    sp.succeed("所有标签创建完成");
+  }
+};
+const updatePackage = async (options) => {
+  const { projects, branch, editKey, newVal } = options;
+  const { folder, origin } = getConfig();
+  await checkProjectDir(projects, branch);
+  for (const project of projects) {
+    const filePath = join(folder, project, "/package.json");
+    const reg = new RegExp(`("${editKey}":\\s+").+(",?
+?)`);
+    const str = readFileSync(filePath, "utf-8").replace(reg, `$1${newVal}$2`);
+    writeFileSync(filePath, str);
+    const commonds = [
+      `git add package.json`,
+      `git commit -m "chore: 修改package.json ${editKey}==>${newVal}"`,
+      `git push ${origin} ${branch}`
+    ];
+    await execAsync(commonds, "", { cwd: join(folder, project) });
+  }
 };
 const { createPromptModule } = inquirer.default;
 const prompt = createPromptModule();
@@ -758,6 +827,63 @@ program.command("tag").argument("<tag>").description("创建标签").action(asyn
     tagProjects: tagProjects.includes("all") ? allProjects : tagProjects,
     tagName: tag,
     branch
+  });
+});
+program.command("u").description("统一修改项目中package.json的某一个配置").argument("<branch>", "统一修改的分支").action(async (branch) => {
+  await checkVersion(prompt);
+  if (!branch) {
+    console.log(chalk.red("请输入分支名称"));
+    kill$1(process.pid);
+    return;
+  }
+  const { checkoutAll } = await prompt({
+    type: "confirm",
+    name: "checkoutAll",
+    message: "此操作会放弃所有非新增的更改，是否继续？"
+  });
+  if (!checkoutAll) {
+    kill$1(process.pid);
+    return;
+  }
+  const { projectes, packageKeys } = getConfig();
+  const allProjects = [...projectes];
+  const { updateProjects } = await prompt({
+    type: "checkbox",
+    name: "updateProjects",
+    message: "请选择需要修的项目",
+    choices: [{ name: "全部", value: "all", checked: true }].concat(
+      allProjects.map((v) => {
+        return {
+          name: v,
+          value: v,
+          checked: false
+        };
+      })
+    )
+  });
+  const { editKey } = await prompt({
+    type: "list",
+    name: "editKey",
+    choices: packageKeys.map((v) => ({
+      name: v,
+      value: v
+    }))
+  });
+  if (!editKey) {
+    console.log(chalk.red("请选择要修改的选项"));
+    kill$1(process.pid);
+    return;
+  }
+  const { newVal } = await prompt({
+    type: "input",
+    name: "newVal",
+    message: "请输入新值"
+  });
+  updatePackage({
+    projects: updateProjects.includes("all") ? allProjects : updateProjects,
+    branch,
+    editKey,
+    newVal
   });
 });
 const Config = new Command("config");

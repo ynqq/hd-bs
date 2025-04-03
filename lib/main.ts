@@ -14,6 +14,7 @@ import { checkVersion, execAsync, sleep } from "./util";
 import { handleDeploy } from "./build/deploy";
 import { RunGitOptions } from "./build/types";
 import { createTags } from "./build/tag";
+import { updatePackage } from "./build/updateFile";
 
 const prompt = createPromptModule();
 
@@ -24,7 +25,7 @@ program
   .argument("[dir]", "工作目录", "")
   .description("初始化工作目录")
   .action(async (dir) => {
-    await checkVersion(prompt)
+    await checkVersion(prompt);
     const sp = createOra("正在进行初始化");
     setConfig({
       folder: dir,
@@ -115,7 +116,7 @@ program
   .option("-p", "跳过build")
   .description("只构建")
   .action(async (options) => {
-    await checkVersion(prompt)
+    await checkVersion(prompt);
     const p = options.passBuild || process.argv.includes("-p");
 
     const { folder } = getConfig();
@@ -137,7 +138,7 @@ program
   .option("-p", "跳过build")
   .description("构建并且部署")
   .action(async (options) => {
-    await checkVersion(prompt)
+    await checkVersion(prompt);
     const p = options.passBuild || process.argv.includes("-p");
     const { folder } = getConfig();
     if (!folder) {
@@ -161,7 +162,7 @@ program
   .argument("<tag>")
   .description("只部署")
   .action(async (tag: string) => {
-    await checkVersion(prompt)
+    await checkVersion(prompt);
     const { deployConfig } = await getDeployConfig(false);
     await handleDeploy(deployConfig, tag);
   });
@@ -171,7 +172,7 @@ program
   .argument("<tag>")
   .description("创建标签")
   .action(async (tag: string) => {
-    await checkVersion(prompt)
+    await checkVersion(prompt);
     if (!tag) {
       console.log(chalk.red("请输入标签名称"));
       kill(process.pid);
@@ -205,6 +206,69 @@ program
       tagProjects: tagProjects.includes("all") ? allProjects : tagProjects,
       tagName: tag,
       branch,
+    });
+  });
+
+// 修改package.json
+program
+  .command("u")
+  .description("统一修改项目中package.json的某一个配置")
+  .argument("<branch>", "统一修改的分支")
+  .action(async (branch: string) => {
+    await checkVersion(prompt);
+    if (!branch) {
+      console.log(chalk.red("请输入分支名称"));
+      kill(process.pid);
+      return;
+    }
+    const { checkoutAll } = await prompt({
+      type: "confirm",
+      name: "checkoutAll",
+      message: "此操作会放弃所有非新增的更改，是否继续？",
+    });
+    if (!checkoutAll) {
+      kill(process.pid);
+      return;
+    }
+    const { projectes, packageKeys } = getConfig();
+    const allProjects = [...projectes];
+    const { updateProjects } = await prompt({
+      type: "checkbox",
+      name: "updateProjects",
+      message: "请选择需要修的项目",
+      choices: [{ name: "全部", value: "all", checked: true }].concat(
+        allProjects.map((v) => {
+          return {
+            name: v,
+            value: v,
+            checked: false,
+          };
+        })
+      ),
+    });
+    const { editKey } = await prompt({
+      type: "list",
+      name: "editKey",
+      choices: packageKeys.map((v) => ({
+        name: v,
+        value: v,
+      })),
+    });
+    if (!editKey) {
+      console.log(chalk.red("请选择要修改的选项"));
+      kill(process.pid);
+      return;
+    }
+    const { newVal } = await prompt({
+      type: "input",
+      name: "newVal",
+      message: "请输入新值",
+    });
+    updatePackage({
+      projects: updateProjects.includes("all") ? allProjects : updateProjects,
+      branch,
+      editKey,
+      newVal,
     });
   });
 

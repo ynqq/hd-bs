@@ -52,6 +52,8 @@ export interface IRCConfigs {
   projectes: string[];
   /**可以进行打标签的分支 比如["test"] 将会进行 test -> master合并 然后创建标签 */
   tagBranches: string[];
+  /**package.json 可以修改的key */
+  packageKeys: string[]
 }
 
 /**
@@ -74,6 +76,7 @@ export const getConfig = (): IRCConfigs => {
     projectes: [],
     serverConfig: {},
     tagBranches: ["hotfix", "test"],
+    packageKeys: ["projectVersion", "pkgImage", "customUrl", "thirdPartyUrl"]
   });
   return config;
 };
