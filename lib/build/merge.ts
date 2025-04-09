@@ -29,7 +29,7 @@ export const handleMergeBranch = async (
     origin,
   } = getConfig();
   const sp = createOra("正在拉取最新代码");
-  sp.spinner = 'fingerDance'
+  sp.spinner = "fingerDance";
   if (branch === "test" && mergeToTestBranch) {
     // test 需要进行合并
     const submoduleFolderName = projectSubModule[project] || submodule;
@@ -90,10 +90,7 @@ export const handleMergeBranch = async (
     }
   }
 
-  sp.color = "green";
-  sp.text = "合并完成";
-  await sleep(300);
-  sp.stop();
+  sp.succeed("合并完成");
 };
 
 const getPkgConfig = async (
@@ -142,18 +139,8 @@ const setSubmodule = async (
     { cwd: path.join(folderPath, `/${project}`) }
   );
   const submoduleCommitId = res.split(" ").at(-1)?.replace?.("\n", "");
-  console.log(
-    chalk.blue(
-      `\n${project}子仓库commitId: ${chalk.red(submoduleCommitId)} ${chalk.red(
-        "\n请确认是否正确！！！"
-      )}`
-    )
-  );
 
-  sp.text = "子仓库初始化完成";
-  sp.color = "green";
-  await sleep(300);
-  sp.stop();
+  sp.succeed(`子仓库初始化完成: ${submoduleCommitId}`);
 };
 
 const genLogFile = async (
@@ -206,16 +193,12 @@ const genLogFile = async (
 }
 `;
 
-  console.log(`\n ${chalk.blue(`version信息:`)} ${chalk.blue(content)}`);
-
   fs.writeFileSync(
     path.join(folderPath, `/${item}/public/version.json`),
     content
   );
-  sp.text = "version文件生成成功";
-  sp.color = "green";
-  await sleep(300);
-  sp.stop();
+  sp.succeed("version文件生成成功");
+  console.log(`\n ${chalk.blue(`version信息:`)} ${chalk.blue(content)}`);
   return JSON.parse(content);
 };
 
@@ -234,14 +217,14 @@ const buildDockerImg = async (
     `docker push ${new_image_name_remote}:${tag}`,
   ];
   const sp = createOra("正在生成docker镜像");
-  sp.spinner = 'fistBump'
+  sp.spinner = "fistBump";
   await execAsync(commands.join("&&"), "", {
     cwd: path.join(folderPath, `/${item}`),
   });
   sp.text = "docker镜像生成成功";
   sp.color = "green";
   await sleep(300);
-  console.log(chalk.green(`镜像生成成功: ${new_image_name_remote}:${tag}`));
+  sp.succeed(`镜像生成成功: ${new_image_name_remote}:${tag}`);
   {
     // 删除本次构建的文件
     // 回退本次修改的git记录
@@ -255,7 +238,6 @@ const buildDockerImg = async (
       cwd: path.join(folderPath, `/${item}`),
     });
   }
-  sp.stop();
   return `${new_image_name_remote}:${tag}`;
 };
 
@@ -267,7 +249,7 @@ const runBuild = async (folderPath: string, item: string) => {
     `npm run ${buildCommand}`,
   ];
   const sp = createOra("正在执行构建命令");
-  sp.spinner = 'soccerHeader'
+  sp.spinner = "soccerHeader";
   await execAsync(commands.join("&&"), "构建失败", {
     env: process.env,
     cwd: path.join(folderPath, `/${item}`),
@@ -275,7 +257,7 @@ const runBuild = async (folderPath: string, item: string) => {
   sp.text = "构建成功";
   sp.color = "green";
   await sleep(300);
-  sp.stop();
+  sp.succeed("构建成功");
 };
 
 const initProject = async ({
@@ -290,7 +272,7 @@ const initProject = async ({
     await execAsync(commands.join("&&"), "", { cwd: folderPath });
     sp.text = `${project}初始化完成`;
     await sleep(300);
-    sp.stop();
+    sp.succeed(`${project}初始化完成`);
   }
 };
 
@@ -298,6 +280,8 @@ const createLocalDockerfile = async (
   { projectPath }: IPubOptions,
   thirdPartyUrl: string
 ) => {
+  const sp = createOra("正在生成dockerfile");
+  sp.spinner = "runner";
   const p = path.join(projectPath, LOCK_DOCKERFILE_NAME);
   const ignoreFile = path.join(projectPath, ".dockerignore");
   if (fs.existsSync(ignoreFile)) {
@@ -312,6 +296,9 @@ COPY ./dist /usr/share/nginx/html/
 `;
   if (!fs.existsSync(p)) {
     fs.writeFileSync(p, context);
+    sp.succeed("dockerfile生成成功");
+  } else {
+    sp.succeed("dockerfile已存在");
   }
 };
 

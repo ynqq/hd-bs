@@ -90,7 +90,7 @@ export const checkProjectDir = async (projects: string[], branch?: string) => {
       await execAsync(commands.join("&&"), "", { cwd: folder });
     }
     if (branch) {
-      sp.text = `${item}正在清理更改并且换到${branch}`;
+      sp.text = `${item}正在清理更改并切换到${branch}`;
       await execAsync(
         `git checkout -q -- . && git checkout ${branch} && git pull`,
         "",

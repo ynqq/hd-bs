@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.16";
+const version = "0.0.18";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -150,7 +150,7 @@ const checkProjectDir = async (projects, branch) => {
       await execAsync(commands.join("&&"), "", { cwd: folder });
     }
     if (branch) {
-      sp.text = `${item}正在清理更改并且换到${branch}`;
+      sp.text = `${item}正在清理更改并切换到${branch}`;
       await execAsync(
         `git checkout -q -- . && git checkout ${branch} && git pull`,
         "",
@@ -229,10 +229,7 @@ const handleMergeBranch = async (project, branch, folderPath) => {
       kill(process.pid);
     }
   }
-  sp.color = "green";
-  sp.text = "合并完成";
-  await sleep(300);
-  sp.stop();
+  sp.succeed("合并完成");
 };
 const getPkgConfig = async (item, folderPath) => {
   const pkg = fs.readFileSync(
@@ -272,18 +269,7 @@ const setSubmodule = async (project, branch, folderPath) => {
     { cwd: path$1.join(folderPath, `/${project}`) }
   );
   const submoduleCommitId = (_b = (_a = res.split(" ").at(-1)) == null ? void 0 : _a.replace) == null ? void 0 : _b.call(_a, "\n", "");
-  console.log(
-    chalk.blue(
-      `
-${project}子仓库commitId: ${chalk.red(submoduleCommitId)} ${chalk.red(
-        "\n请确认是否正确！！！"
-      )}`
-    )
-  );
-  sp.text = "子仓库初始化完成";
-  sp.color = "green";
-  await sleep(300);
-  sp.stop();
+  sp.succeed(`子仓库初始化完成: ${submoduleCommitId}`);
 };
 const genLogFile = async ({ projectVersion, name }, item, folderPath) => {
   const sp = createOra("正在生成version文件");
@@ -317,16 +303,13 @@ const genLogFile = async ({ projectVersion, name }, item, folderPath) => {
   "gitCoreLog": "${gitCoreLog}"
 }
 `;
-  console.log(`
- ${chalk.blue(`version信息:`)} ${chalk.blue(content)}`);
   fs.writeFileSync(
     path$1.join(folderPath, `/${item}/public/version.json`),
     content
   );
-  sp.text = "version文件生成成功";
-  sp.color = "green";
-  await sleep(300);
-  sp.stop();
+  sp.succeed("version文件生成成功");
+  console.log(`
+ ${chalk.blue(`version信息:`)} ${chalk.blue(content)}`);
   return JSON.parse(content);
 };
 const buildDockerImg = async (tag, imageName, folderPath, item) => {
@@ -346,7 +329,7 @@ const buildDockerImg = async (tag, imageName, folderPath, item) => {
   sp.text = "docker镜像生成成功";
   sp.color = "green";
   await sleep(300);
-  console.log(chalk.green(`镜像生成成功: ${new_image_name_remote}:${tag}`));
+  sp.succeed(`镜像生成成功: ${new_image_name_remote}:${tag}`);
   {
     fs.rmSync(path$1.join(folderPath, `/${item}/public/version.json`));
     fs.rmSync(path$1.join(folderPath, `/${item}/${LOCK_DOCKERFILE_NAME}`));
@@ -358,7 +341,6 @@ const buildDockerImg = async (tag, imageName, folderPath, item) => {
       cwd: path$1.join(folderPath, `/${item}`)
     });
   }
-  sp.stop();
   return `${new_image_name_remote}:${tag}`;
 };
 const runBuild = async (folderPath, item) => {
@@ -377,7 +359,7 @@ const runBuild = async (folderPath, item) => {
   sp.text = "构建成功";
   sp.color = "green";
   await sleep(300);
-  sp.stop();
+  sp.succeed("构建成功");
 };
 const initProject = async ({
   project,
@@ -391,10 +373,12 @@ const initProject = async ({
     await execAsync(commands.join("&&"), "", { cwd: folderPath });
     sp.text = `${project}初始化完成`;
     await sleep(300);
-    sp.stop();
+    sp.succeed(`${project}初始化完成`);
   }
 };
 const createLocalDockerfile = async ({ projectPath }, thirdPartyUrl) => {
+  const sp = createOra("正在生成dockerfile");
+  sp.spinner = "runner";
   const p = path$1.join(projectPath, LOCK_DOCKERFILE_NAME);
   const ignoreFile = path$1.join(projectPath, ".dockerignore");
   if (fs.existsSync(ignoreFile)) {
@@ -409,6 +393,9 @@ COPY ./dist /usr/share/nginx/html/
 `;
   if (!fs.existsSync(p)) {
     fs.writeFileSync(p, context);
+    sp.succeed("dockerfile生成成功");
+  } else {
+    sp.succeed("dockerfile已存在");
   }
 };
 const handleBuild = async (options) => {
@@ -630,6 +617,7 @@ const createTags = async ({
   }
   sp.text = "开始获取远程的标签";
   sp.spinner = "aesthetic";
+  sp.start();
   const allProjects = [...initTags, ...projectTags];
   const resList = await Promise.allSettled(
     allProjects.map((item) => {
@@ -657,19 +645,28 @@ const updatePackage = async (options) => {
   const { projects, branch, editKey, newVal } = options;
   const { folder, origin } = getConfig();
   await checkProjectDir(projects, branch);
+  const sp = createOra("开始修改");
   for (const project of projects) {
     const filePath = join(folder, project, "/package.json");
     const reg = new RegExp(`("${editKey}":\\s+").+(",?
 ?)`);
     const str = readFileSync(filePath, "utf-8").replace(reg, `$1${newVal}$2`);
     writeFileSync(filePath, str);
-    const commonds = [
-      `git add package.json`,
-      `git commit -m "chore: 修改package.json ${editKey}==>${newVal}"`,
-      `git push ${origin} ${branch}`
-    ];
-    await execAsync(commonds, "", { cwd: join(folder, project) });
+    const files = getGitStatus(join(folder, project));
+    if ((await files).some((v) => v.file === "package.json")) {
+      sp.text = `${project}修改完成,正在进行提交`;
+      const commonds = [
+        `git add package.json`,
+        `git commit -m "chore: 修改package.json ${editKey}==>${newVal}"`,
+        `git push ${origin} ${branch}`
+      ];
+      await execAsync(commonds, "", { cwd: join(folder, project) });
+      sp.succeed(`${project}修改并提交完成`);
+    } else {
+      sp.succeed(`${project}无需修改`);
+    }
   }
+  sp.succeed(`已将所有项目package.json中${editKey}的值改为${newVal}`);
 };
 const { createPromptModule } = inquirer.default;
 const prompt = createPromptModule();

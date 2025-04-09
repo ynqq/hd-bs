@@ -175,6 +175,7 @@ export const createTags = async ({
   }
   sp.text = "开始获取远程的标签";
   sp.spinner = "aesthetic";
+  sp.start()
   const allProjects = [...initTags, ...projectTags];
   const resList = await Promise.allSettled(
     allProjects.map((item) => {
