@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.18";
+const version = "0.0.19";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -587,6 +587,12 @@ const createTag = async (project, tagName, branch, sp, folderPath) => {
     console.log(
       chalk.red(`${project}${masterName}->dev合并失败，请联系开发进行处理`)
     );
+    try {
+      await execAsync([`git merge --abort`], "", {
+        cwd: folderPath
+      });
+    } catch (error2) {
+    }
   }
   sp.text = `${project}标签创建完成`;
   await sleep(500);

@@ -138,6 +138,11 @@ const createTag = async (
     console.log(
       chalk.red(`${project}${masterName}->dev合并失败，请联系开发进行处理`)
     );
+    try {
+      await execAsync([`git merge --abort`], "", {
+        cwd: folderPath,
+      });
+    } catch (error) {}
   }
   sp.text = `${project}标签创建完成`;
   await sleep(500);
@@ -175,7 +180,7 @@ export const createTags = async ({
   }
   sp.text = "开始获取远程的标签";
   sp.spinner = "aesthetic";
-  sp.start()
+  sp.start();
   const allProjects = [...initTags, ...projectTags];
   const resList = await Promise.allSettled(
     allProjects.map((item) => {
