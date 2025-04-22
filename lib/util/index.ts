@@ -63,7 +63,7 @@ export const checkVersion = async (prompt: PromptModule) => {
       type: "confirm",
       name: "update",
       message: `当前版本${version}，最新版本${npmVersion}，是否更新？`,
-      default: false,
+      default: true,
     }).then(async ({ update }) => {
       if (update) {
         sp.spinner = "monkey";

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { getConfig } from "../config";
-import { execAsync, sleep } from "../util";
+import { execAsync, getGitStatus, sleep } from "../util";
 import chalk from "chalk";
 import fs from "node:fs";
 import { execSync } from "node:child_process";
@@ -8,6 +8,7 @@ import dayjs from "dayjs";
 import { createOra } from "../ora";
 import { RunGitOptions } from "./types";
 import { kill } from "node:process";
+import { PromptModule } from "inquirer";
 
 interface IPubOptions {
   projectPath: string;
@@ -323,7 +324,10 @@ export const handleBuild = async (options: RunGitOptions) => {
       .map(() => (Math.random() * 10) | 0)
       .join("");
 
-    const tag = `${branch}.${projectVersion}.${random_number}`;
+    const tag = `${branch.replace(
+      /\//g,
+      "_"
+    )}.${projectVersion}.${random_number}`;
     if (!passBuild) {
       await setSubmodule(project, branch, folderPath);
     }
@@ -333,4 +337,51 @@ export const handleBuild = async (options: RunGitOptions) => {
     }
     return await buildDockerImg(tag, imageName, folderPath, project);
   }
+};
+
+export const handleMerge = async (
+  options: RunGitOptions,
+  prompt: PromptModule
+) => {
+  const { deployProjectes, branch, folderPath } = options;
+  const project = deployProjectes;
+  const projectPath = path.join(folderPath, project);
+  const pubOptions: IPubOptions = {
+    projectPath,
+    folderPath,
+    project,
+  };
+
+  await initProject(pubOptions);
+  const sp = createOra("准备进行合并");
+  sp.spinner = "runner";
+  sp.text = `正在合并${project}`;
+  const status = (await getGitStatus(projectPath)).filter(
+    (v) => v.file !== "core"
+  );
+  if (status.length) {
+    sp.stop();
+    const { isContinue } = await prompt({
+      type: "confirm",
+      name: "isContinue",
+      message: `当前有未提交的文件，是否清理并继续？`,
+      default: false,
+    });
+    if (isContinue) {
+      sp.text = `正在清理未提交的文件`;
+      sp.spinner = "fistBump";
+      sp.start();
+      const commands = [`git checkout -q -- .`, `git clean -fd`];
+      await execAsync(commands.join("&&"), "", {
+        cwd: projectPath,
+      });
+      sp.succeed("清理完成");
+    } else {
+      kill(process.pid);
+      return
+    }
+  } else {
+    sp.stop();
+  }
+  await handleMergeBranch(project, branch, folderPath);
 };

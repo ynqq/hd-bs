@@ -7,7 +7,7 @@ import chalk from "chalk";
 import fs from "node:fs";
 import * as inquirer from "inquirer";
 const { createPromptModule } = inquirer.default;
-import { handleBuild } from "./build/merge";
+import { handleBuild, handleMerge } from "./build/merge";
 import path from "node:path";
 import { createOra } from "./ora";
 import { checkVersion, execAsync, sleep } from "./util";
@@ -165,6 +165,15 @@ program
     await checkVersion(prompt);
     const { deployConfig } = await getDeployConfig(false);
     await handleDeploy(deployConfig, tag);
+  });
+
+program
+  .command("m")
+  .description("只进行代码的拉取，合并(如果需要), 推送")
+  .action(async () => {
+    await checkVersion(prompt);
+    const { deployConfig } = await getDeployConfig(false);
+    await handleMerge(deployConfig, prompt);
   });
 
 program

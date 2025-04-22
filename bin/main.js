@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.19";
+const version = "0.0.20";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -124,7 +124,7 @@ const checkVersion = async (prompt2) => {
       type: "confirm",
       name: "update",
       message: `当前版本${version}，最新版本${npmVersion}，是否更新？`,
-      default: false
+      default: true
     }).then(async ({ update }) => {
       if (update) {
         sp.spinner = "monkey";
@@ -416,7 +416,10 @@ const handleBuild = async (options) => {
     const { projectVersion, thirdPartyUrl } = pkg;
     await createLocalDockerfile(pubOptions, thirdPartyUrl);
     const random_number = [...new Array(4)].map(() => Math.random() * 10 | 0).join("");
-    const tag = `${branch}.${projectVersion}.${random_number}`;
+    const tag = `${branch.replace(
+      /\//g,
+      "_"
+    )}.${projectVersion}.${random_number}`;
     if (!passBuild) {
       await setSubmodule(project, branch, folderPath);
     }
@@ -426,6 +429,48 @@ const handleBuild = async (options) => {
     }
     return await buildDockerImg(tag, imageName, folderPath, project);
   }
+};
+const handleMerge = async (options, prompt2) => {
+  const { deployProjectes, branch, folderPath } = options;
+  const project = deployProjectes;
+  const projectPath = path$1.join(folderPath, project);
+  const pubOptions = {
+    projectPath,
+    folderPath,
+    project
+  };
+  await initProject(pubOptions);
+  const sp = createOra("准备进行合并");
+  sp.spinner = "runner";
+  sp.text = `正在合并${project}`;
+  const status = (await getGitStatus(projectPath)).filter(
+    (v) => v.file !== "core"
+  );
+  if (status.length) {
+    sp.stop();
+    const { isContinue } = await prompt2({
+      type: "confirm",
+      name: "isContinue",
+      message: `当前有未提交的文件，是否清理并继续？`,
+      default: false
+    });
+    if (isContinue) {
+      sp.text = `正在清理未提交的文件`;
+      sp.spinner = "fistBump";
+      sp.start();
+      const commands = [`git checkout -q -- .`, `git clean -fd`];
+      await execAsync(commands.join("&&"), "", {
+        cwd: projectPath
+      });
+      sp.succeed("清理完成");
+    } else {
+      kill(process.pid);
+      return;
+    }
+  } else {
+    sp.stop();
+  }
+  await handleMergeBranch(project, branch, folderPath);
 };
 const handleDeploy = async (deployConfig, tag) => {
   const { serverConfig, image_name_remote } = getConfig();
@@ -794,6 +839,11 @@ program.command("d").argument("<tag>").description("只部署").action(async (ta
   await checkVersion(prompt);
   const { deployConfig } = await getDeployConfig(false);
   await handleDeploy(deployConfig, tag);
+});
+program.command("m").description("只进行代码的拉取，合并(如果需要), 推送").action(async () => {
+  await checkVersion(prompt);
+  const { deployConfig } = await getDeployConfig(false);
+  await handleMerge(deployConfig, prompt);
 });
 program.command("tag").argument("<tag>").description("创建标签").action(async (tag) => {
   await checkVersion(prompt);
