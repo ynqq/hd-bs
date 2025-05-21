@@ -29,8 +29,12 @@ export const handleMergeBranch = async (
     mergeToTestBranch,
     origin,
   } = getConfig();
+
   const sp = createOra("正在拉取最新代码");
+
+  sp.text = `正在拉取最新代码`;
   sp.spinner = "fingerDance";
+  sp.start();
   if (branch === "test" && mergeToTestBranch) {
     // test 需要进行合并
     const submoduleFolderName = projectSubModule[project] || submodule;
@@ -79,7 +83,7 @@ export const handleMergeBranch = async (
     const commands = [
       `git fetch ${origin}`,
       `git checkout ${branch}`,
-      `git merge ${origin}/${branch}`,
+      `git pull`,
     ];
     try {
       await execAsync(commands.join("&&"), "", {
@@ -88,6 +92,7 @@ export const handleMergeBranch = async (
     } catch (error) {
       execAsync(`code ${path.join(folderPath, `/${project}`)}`);
       kill(process.pid);
+      return Promise.reject(error);
     }
   }
 
@@ -122,25 +127,25 @@ const setSubmodule = async (
     filePath,
     fileData.replace(/(branch\s+=).*(\n?)/, `$1${branch}$2`)
   );
-  const commands = ["git submodule deinit -f --all"];
-  await execAsync(commands.join("&&"), "", {
-    cwd: path.join(folderPath, `/${project}`),
-  });
-
-  fs.rmSync(
-    path.join(`${path.join(folderPath, `/${project}`)}`, ".git/modules"),
-    {
-      recursive: true,
-      force: true,
-    }
-  );
+  try {
+    const commands = ["git submodule deinit -f --all"];
+    await execAsync(commands.join("&&"), "", {
+      cwd: path.join(folderPath, `/${project}`),
+    });
+    fs.rmSync(
+      path.join(`${path.join(folderPath, `/${project}`)}`, ".git/modules"),
+      {
+        recursive: true,
+        force: true,
+      }
+    );
+  } catch (error) {}
   const res = await execAsync(
     ["git submodule init", "git submodule update --remote"].join("&&"),
     "",
     { cwd: path.join(folderPath, `/${project}`) }
   );
   const submoduleCommitId = res.split(" ").at(-1)?.replace?.("\n", "");
-
   sp.succeed(`子仓库初始化完成: ${submoduleCommitId}`);
 };
 
@@ -318,7 +323,7 @@ export const handleBuild = async (options: RunGitOptions) => {
   }
   const pkg = await getPkgConfig(project, folderPath);
   if (pkg) {
-    const { projectVersion, thirdPartyUrl } = pkg;
+    const { projectVersion, thirdPartyUrl, appointVueCoreBranch } = pkg;
     await createLocalDockerfile(pubOptions, thirdPartyUrl);
     const random_number = [...new Array(4)]
       .map(() => (Math.random() * 10) | 0)
@@ -329,7 +334,7 @@ export const handleBuild = async (options: RunGitOptions) => {
       "_"
     )}.${projectVersion}.${random_number}`;
     if (!passBuild) {
-      await setSubmodule(project, branch, folderPath);
+      await setSubmodule(project, appointVueCoreBranch || branch, folderPath);
     }
     const { imageName } = await genLogFile(pkg, project, folderPath);
     if (!passBuild) {
@@ -378,7 +383,7 @@ export const handleMerge = async (
       sp.succeed("清理完成");
     } else {
       kill(process.pid);
-      return
+      return;
     }
   } else {
     sp.stop();

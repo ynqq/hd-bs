@@ -61,13 +61,14 @@ program
   });
 
 const getDeployConfig = async (passBuild: boolean, onlyBuild?: boolean) => {
-  const { folder, branches, server, projectes } = getConfig();
+  const { folder, branches, server, projectes, nonMainLineBranches } =
+    getConfig();
   // 选择需要部署的项目
   const { deployProjectes } = await prompt({
     type: "list",
     name: "deployProjectes",
     message: "请选择需要部署的项目",
-    choices: projectes.map((v) => ({
+    choices: projectes.concat(nonMainLineBranches).map((v) => ({
       name: v,
       value: v,
     })),
@@ -186,7 +187,8 @@ program
       console.log(chalk.red("请输入标签名称"));
       kill(process.pid);
     }
-    const { projectes, initProjectes, tagBranches } = getConfig();
+    const { projectes, initProjectes, tagBranches, nonMainLineBranches } =
+      getConfig();
     const { branch } = await prompt({
       type: "list",
       name: "branch",
@@ -196,12 +198,16 @@ program
         value: v,
       })),
     });
-    const allProjects = [...initProjectes, ...projectes];
+    const allProjects = [
+      ...initProjectes,
+      ...projectes,
+      ...nonMainLineBranches,
+    ];
     const { tagProjects } = await prompt({
       type: "checkbox",
       name: "tagProjects",
       message: "请选择需要创建标签的项目",
-      choices: [{ name: "全部", value: "all", checked: true }].concat(
+      choices: [{ name: "全部非主线项目", value: "all", checked: true }].concat(
         allProjects.map((v) => {
           return {
             name: v,
@@ -212,7 +218,9 @@ program
       ),
     });
     createTags({
-      tagProjects: tagProjects.includes("all") ? allProjects : tagProjects,
+      tagProjects: tagProjects.includes("all")
+        ? allProjects.filter((v) => !nonMainLineBranches.includes(v))
+        : tagProjects,
       tagName: tag,
       branch,
     });
