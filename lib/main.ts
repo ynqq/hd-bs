@@ -60,7 +60,11 @@ program
     sp.stop();
   });
 
-const getDeployConfig = async (passBuild: boolean, onlyBuild?: boolean) => {
+const getDeployConfig = async (
+  passBuild: boolean,
+  onlyBuild?: boolean,
+  branchName?: string
+) => {
   const { folder, branches, server, projectes, nonMainLineBranches } =
     getConfig();
   // 选择需要部署的项目
@@ -77,16 +81,20 @@ const getDeployConfig = async (passBuild: boolean, onlyBuild?: boolean) => {
     console.log(chalk.red(`请选择要部署的项目`));
     kill(process.pid);
   }
-  // 选择需要部署的分支
-  const { deployBranch } = await prompt({
-    type: "list",
-    name: "deployBranch",
-    message: "请选择需要部署的分支",
-    choices: branches.map((v) => ({
-      name: v,
-      value: v,
-    })),
-  });
+  let deployBranch = branchName || "";
+  if (!branchName) {
+    // 选择需要部署的分支
+    const config = await prompt({
+      type: "list",
+      name: "deployBranch",
+      message: "请选择需要部署的分支",
+      choices: branches.map((v) => ({
+        name: v,
+        value: v,
+      })),
+    });
+    deployBranch = config.deployBranch;
+  }
   const serverConfig = server[deployBranch] || {};
   if (
     !onlyBuild &&
@@ -114,9 +122,10 @@ const getDeployConfig = async (passBuild: boolean, onlyBuild?: boolean) => {
 
 program
   .command("b")
+  .argument("[branch]")
   .option("-p", "跳过build")
   .description("只构建")
-  .action(async (options) => {
+  .action(async (branch, options) => {
     await checkVersion(prompt);
     const p = options.passBuild || process.argv.includes("-p");
 
@@ -127,7 +136,7 @@ program
       return;
     }
     await execAsync(`docker info`, "请先安装并启动docker");
-    const { deployConfig } = await getDeployConfig(p, true);
+    const { deployConfig } = await getDeployConfig(p, true, branch);
     console.log(
       chalk.green(`所选配置项: ${JSON.stringify(deployConfig, null, 2)}`)
     );

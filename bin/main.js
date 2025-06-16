@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.20";
+const version = "0.0.22";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -107,6 +107,12 @@ const getGitStatus = async (cwd) => {
   return lines.map((line) => {
     const [status2, file] = line.trim().split(/\s+(.+)/);
     return { status: status2, file };
+  });
+};
+const hasconflict = async (cwd) => {
+  const status = await getGitStatus(cwd);
+  return status.some((item) => {
+    return item.status.includes("UU");
   });
 };
 const checkVersion = async (prompt2) => {
@@ -514,14 +520,184 @@ const handleDeploy = async (deployConfig, tag) => {
   }).connect(config);
 };
 const { createPromptModule: createPromptModule$1 } = inquirer.default;
-createPromptModule$1();
+const prompt$1 = createPromptModule$1();
+const masterName = "master";
+const createTag = async (project, tagName, branch, sp, folderPath) => {
+  const { origin } = getConfig();
+  await execAsync([`git pull`].join("&&"), "", { cwd: folderPath });
+  const commamds = [`git tag -l "${tagName}"`];
+  const existTag = (await execAsync(commamds.join("&&"), "", { cwd: folderPath })).trim();
+  if (existTag) {
+    sp.stop();
+    console.log(chalk.red(`${project}标签${tagName}已存在`));
+    const { existAction } = await prompt$1({
+      type: "list",
+      name: "existAction",
+      message: `${project}标签${tagName}已存在，请选择下一步操作。`,
+      choices: [
+        { name: "删除并重新创建", value: "delete" },
+        { name: "跳过此项目", value: "pass" },
+        { name: "终止操作", value: "stop" }
+      ]
+    });
+    if (existAction === "stop") {
+      kill$1(process.pid);
+      return;
+    }
+    if (existAction === "delete") {
+      sp.stop();
+      const { remoteTagIsDelete } = await prompt$1({
+        type: "confirm",
+        message: `${project}远程的${tagName}是否已经删除？`,
+        name: "remoteTagIsDelete"
+      });
+      if (!remoteTagIsDelete) {
+        console.log(chalk.red(`请先删除${project}远程的${tagName}标签`));
+        kill$1(process.pid);
+      }
+      const deleteTagCommands = [`git tag -d ${tagName}`];
+      await execAsync(deleteTagCommands.join("&&"), "", { cwd: folderPath });
+    } else if (existAction === "pass") {
+      return;
+    }
+  }
+  sp.text = `正在创建${project}的标签: ${tagName}`;
+  sp.start();
+  if (branch === "hotfix") {
+    const createCommands = [
+      `git checkout ${branch}`,
+      `git pull`,
+      `git tag ${tagName}`,
+      `git push ${origin} ${tagName}`,
+      `git checkout ${masterName}`,
+      `git pull`,
+      `git merge ${origin}/${branch}`
+    ];
+    await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
+    const conflict = await hasconflict(folderPath);
+    if (conflict) {
+      sp.stop();
+      console.log(
+        chalk.red(
+          `${project}:${branch}->${masterName}合并存在冲突，请联系开发进行处理`
+        )
+      );
+      try {
+        execAsync(`code ${folderPath}`);
+      } catch (error) {
+      }
+      kill$1(process.pid);
+      return;
+    }
+    await execAsync([`git push ${origin} ${masterName}`].join("&&"), "", {
+      cwd: folderPath
+    });
+  } else {
+    const createCommands = [
+      `git pull`,
+      `git checkout ${masterName}`,
+      `git pull`,
+      `git merge ${origin}/${branch}`
+    ];
+    await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
+    const conflict = await hasconflict(folderPath);
+    if (conflict) {
+      sp.stop();
+      try {
+        execAsync(`code ${folderPath}`);
+      } catch (error) {
+      }
+      console.log(
+        chalk.red(
+          `${project}:${branch}->${masterName}合并存在冲突，请联系开发进行处理`
+        )
+      );
+      kill$1(process.pid);
+      return;
+    }
+    await execAsync(
+      [
+        `git push ${origin} ${masterName}`,
+        `git tag ${tagName}`,
+        `git push ${origin} ${tagName}`
+      ].join("&&"),
+      "",
+      { cwd: folderPath }
+    );
+  }
+  try {
+    const mergeMasterToDevCommands = [
+      `git checkout dev`,
+      `git pull`,
+      `git merge ${origin}/${masterName}`,
+      `git push ${origin} dev`
+    ];
+    await execAsync(mergeMasterToDevCommands.join("&&"), "", {
+      cwd: folderPath
+    });
+  } catch (error) {
+    console.log(
+      chalk.red(`${project}${masterName}->dev合并失败，请联系开发进行处理`)
+    );
+    try {
+      await execAsync([`git merge --abort`], "", {
+        cwd: folderPath
+      });
+    } catch (error2) {
+    }
+  }
+  sp.text = `${project}标签创建完成`;
+  await sleep(500);
+};
 const createTags = async ({
   tagProjects,
   tagName,
   branch
 }) => {
-  console.log(tagProjects);
-  return;
+  const { initProjectes, folder, gitPrefix } = getConfig();
+  const initTags = tagProjects.filter((v) => initProjectes.includes(v));
+  const projectTags = tagProjects.filter((v) => !initProjectes.includes(v));
+  const sp = createOra(``);
+  for (const item of tagProjects) {
+    if (!fs.existsSync(path.join(folder, item))) {
+      sp.text = `正在克隆${item}`;
+      const commands = [`git clone ${gitPrefix}/${item}`];
+      await execAsync(commands.join("&&"), "", { cwd: folder });
+    }
+  }
+  for (const item of initTags) {
+    await createTag(item, tagName, branch, sp, path.join(folder, item));
+    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+  }
+  for (const item of projectTags) {
+    await createTag(item, tagName, branch, sp, path.join(folder, item));
+    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+  }
+  sp.text = "开始获取远程的标签";
+  sp.spinner = "aesthetic";
+  sp.start();
+  const allProjects = [...initTags, ...projectTags];
+  const resList = await Promise.allSettled(
+    allProjects.map((item) => {
+      return (async () => {
+        try {
+          await execAsync(`git fetch origin tag ${tagName}`, "", {
+            cwd: path.join(folder, item)
+          });
+        } catch (error) {
+          return Promise.reject(item);
+        }
+      })();
+    })
+  );
+  const errs = resList.filter((v) => v.status === "rejected");
+  if (errs.length) {
+    console.log(
+      chalk.red(errs.map((v) => v.reason).join(",")) + "标签创建失败"
+    );
+  } else {
+    sp.succeed("所有标签创建完成");
+  }
 };
 const updatePackage = async (options) => {
   const { projects, branch, editKey, newVal } = options;
@@ -588,7 +764,7 @@ program.command("init").argument("[dir]", "工作目录", "").description("初�
   await sleep(300);
   sp.stop();
 });
-const getDeployConfig = async (passBuild, onlyBuild) => {
+const getDeployConfig = async (passBuild, onlyBuild, branchName) => {
   const { folder, branches, server, projectes, nonMainLineBranches } = getConfig();
   const { deployProjectes } = await prompt({
     type: "list",
@@ -603,15 +779,19 @@ const getDeployConfig = async (passBuild, onlyBuild) => {
     console.log(chalk.red(`请选择要部署的项目`));
     kill$1(process.pid);
   }
-  const { deployBranch } = await prompt({
-    type: "list",
-    name: "deployBranch",
-    message: "请选择需要部署的分支",
-    choices: branches.map((v) => ({
-      name: v,
-      value: v
-    }))
-  });
+  let deployBranch = branchName || "";
+  if (!branchName) {
+    const config = await prompt({
+      type: "list",
+      name: "deployBranch",
+      message: "请选择需要部署的分支",
+      choices: branches.map((v) => ({
+        name: v,
+        value: v
+      }))
+    });
+    deployBranch = config.deployBranch;
+  }
   const serverConfig = server[deployBranch] || {};
   if (!onlyBuild && (!serverConfig || !serverConfig.host || !serverConfig.serverFolder)) {
     console.log(
@@ -631,7 +811,7 @@ const getDeployConfig = async (passBuild, onlyBuild) => {
     deployConfig
   };
 };
-program.command("b").option("-p", "跳过build").description("只构建").action(async (options) => {
+program.command("b").argument("[branch]").option("-p", "跳过build").description("只构建").action(async (branch, options) => {
   await checkVersion(prompt);
   const p = options.passBuild || process.argv.includes("-p");
   const { folder } = getConfig();
@@ -641,7 +821,7 @@ program.command("b").option("-p", "跳过build").description("只构建").action
     return;
   }
   await execAsync(`docker info`, "请先安装并启动docker");
-  const { deployConfig } = await getDeployConfig(p, true);
+  const { deployConfig } = await getDeployConfig(p, true, branch);
   console.log(
     chalk.green(`所选配置项: ${JSON.stringify(deployConfig, null, 2)}`)
   );
