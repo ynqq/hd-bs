@@ -190,7 +190,8 @@ program
   .command("tag")
   .argument("<tag>")
   .description("创建标签")
-  .action(async (tag: string) => {
+  .option("-f, --from <branch>", "指定来源分支")
+  .action(async (tag: string, { from }) => {
     await checkVersion(prompt);
     if (!tag) {
       console.log(chalk.red("请输入标签名称"));
@@ -198,15 +199,21 @@ program
     }
     const { projectes, initProjectes, tagBranches, nonMainLineBranches } =
       getConfig();
-    const { branch } = await prompt({
-      type: "list",
-      name: "branch",
-      message: "请选择来源分支",
-      choices: tagBranches.map((v) => ({
-        name: v,
-        value: v,
-      })),
-    });
+    let branch = "";
+    if (from) {
+      branch = from;
+    } else {
+      const res = await prompt({
+        type: "list",
+        name: "branch",
+        message: "请选择来源分支",
+        choices: tagBranches.map((v) => ({
+          name: v,
+          value: v,
+        })),
+      });
+      branch = res.branch;
+    }
     const allProjects = [
       ...initProjectes,
       ...projectes,
@@ -232,6 +239,7 @@ program
         : tagProjects,
       tagName: tag,
       branch,
+      isCustom: !!from,
     });
   });
 

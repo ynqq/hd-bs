@@ -148,14 +148,74 @@ const createTag = async (
   await sleep(500);
 };
 
+const createCustomTag = async (
+  project: string,
+  tagName: string,
+  branch: string,
+  sp: Ora,
+  folderPath: string
+) => {
+  const { origin } = getConfig();
+  await execAsync([`git pull`].join("&&"), "", { cwd: folderPath });
+  const commamds = [`git tag -l "${tagName}"`];
+  const existTag = (
+    await execAsync(commamds.join("&&"), "", { cwd: folderPath })
+  ).trim();
+  if (existTag) {
+    sp.stop();
+    console.log(chalk.red(`${project}标签${tagName}已存在`));
+    const { existAction } = await prompt({
+      type: "list",
+      name: "existAction",
+      message: `${project}标签${tagName}已存在，请选择下一步操作。`,
+      choices: [
+        { name: "删除并重新创建", value: "delete" },
+        { name: "跳过此项目", value: "pass" },
+        { name: "终止操作", value: "stop" },
+      ],
+    });
+    if (existAction === "stop") {
+      kill(process.pid);
+      return;
+    }
+    if (existAction === "delete") {
+      sp.stop();
+      const { remoteTagIsDelete } = await prompt({
+        type: "confirm",
+        message: `${project}远程的${tagName}是否已经删除？`,
+        name: "remoteTagIsDelete",
+      });
+      if (!remoteTagIsDelete) {
+        console.log(chalk.red(`请先删除${project}远程的${tagName}标签`));
+        kill(process.pid);
+      }
+      const deleteTagCommands = [`git tag -d ${tagName}`];
+      await execAsync(deleteTagCommands.join("&&"), "", { cwd: folderPath });
+    } else if (existAction === "pass") {
+      return;
+    }
+  }
+  const createCommands = [
+    `git checkout ${branch}`,
+    `git pull`,
+    `git tag ${tagName}`,
+    `git push ${origin} ${tagName}`,
+  ];
+  await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
+  sp.text = `${project}标签创建完成`;
+  await sleep(500);
+};
+
 export const createTags = async ({
   tagProjects,
   tagName,
   branch,
+  isCustom,
 }: {
   tagProjects: string[];
   tagName: string;
   branch: string;
+  isCustom: boolean;
 }) => {
   const { initProjectes, folder, gitPrefix } = getConfig();
   // initProjectes 里面的分支必须优先合并
@@ -170,12 +230,20 @@ export const createTags = async ({
     }
   }
   for (const item of initTags) {
-    await createTag(item, tagName, branch, sp, path.join(folder, item));
+    if (isCustom) {
+      await createCustomTag(item, tagName, branch, sp, path.join(folder, item));
+    } else {
+      await createTag(item, tagName, branch, sp, path.join(folder, item));
+    }
     sp.succeed(`${item} 标签: ${tagName} 创建成功`);
   }
 
   for (const item of projectTags) {
-    await createTag(item, tagName, branch, sp, path.join(folder, item));
+    if (isCustom) {
+      await createCustomTag(item, tagName, branch, sp, path.join(folder, item));
+    } else {
+      await createTag(item, tagName, branch, sp, path.join(folder, item));
+    }
     sp.succeed(`${item} 标签: ${tagName} 创建成功`);
   }
   sp.text = "开始获取远程的标签";

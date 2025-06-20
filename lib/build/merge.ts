@@ -163,12 +163,9 @@ const genLogFile = async (
   })
     .toString()
     .trim();
-  const buildUserName = execSync(`git show -s --format=%cn`, { cwd: cdCommand })
-    .toString()
-    .trim();
   const buildTime = dayjs().format("YYYY-MM-DD HH:mm:ss");
   const gitLog = execSync(
-    `git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"提交人：%an <br> 提交时间：%ad <div>提交信息：%s</div><br>"`,
+    `git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"commitId: %H <div>commitTime: %ad</div><br>"`,
     {
       cwd: cdCommand,
     }
@@ -178,7 +175,7 @@ const genLogFile = async (
     .replace(/\n/g, "");
 
   const gitCoreLog = execSync(
-    `git submodule foreach git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"提交人：%an <br> 提交时间：%ad <div>提交信息：%s</div><br>"`,
+    `git submodule foreach git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"commitId: %H <div>commitTime: %ad</div><br>"`,
     {
       cwd: cdCommand,
     }
@@ -192,7 +189,6 @@ const genLogFile = async (
   "branch": "${branch}",
   "tag": "${branch}.${version}.${String(Date.now()).slice(-4)}",
   "imageName": "${imageName}",
-  "buildUserName": "${buildUserName}",
   "buildTime": "${buildTime}",
   "gitLog": "${gitLog}",
   "gitCoreLog": "${gitCoreLog}"

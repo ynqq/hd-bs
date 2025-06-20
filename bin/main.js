@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.22";
+const version = "0.0.24";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -286,16 +286,15 @@ const genLogFile = async ({ projectVersion, name }, item, folderPath) => {
   const branch = execSync(`git rev-parse --abbrev-ref HEAD`, {
     cwd: cdCommand
   }).toString().trim();
-  const buildUserName = execSync(`git show -s --format=%cn`, { cwd: cdCommand }).toString().trim();
   const buildTime = dayjs().format("YYYY-MM-DD HH:mm:ss");
   const gitLog = execSync(
-    `git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"提交人：%an <br> 提交时间：%ad <div>提交信息：%s</div><br>"`,
+    `git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"commitId: %H <div>commitTime: %ad</div><br>"`,
     {
       cwd: cdCommand
     }
   ).toString().trim().replace(/\n/g, "");
   const gitCoreLog = execSync(
-    `git submodule foreach git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"提交人：%an <br> 提交时间：%ad <div>提交信息：%s</div><br>"`,
+    `git submodule foreach git log -6 --date=format:"%Y-%m-%d %H:%M:%S" --pretty=format:"commitId: %H <div>commitTime: %ad</div><br>"`,
     {
       cwd: cdCommand
     }
@@ -304,7 +303,6 @@ const genLogFile = async ({ projectVersion, name }, item, folderPath) => {
   "branch": "${branch}",
   "tag": "${branch}.${version2}.${String(Date.now()).slice(-4)}",
   "imageName": "${imageName}",
-  "buildUserName": "${buildUserName}",
   "buildTime": "${buildTime}",
   "gitLog": "${gitLog}",
   "gitCoreLog": "${gitCoreLog}"
@@ -649,10 +647,60 @@ const createTag = async (project, tagName, branch, sp, folderPath) => {
   sp.text = `${project}标签创建完成`;
   await sleep(500);
 };
+const createCustomTag = async (project, tagName, branch, sp, folderPath) => {
+  const { origin } = getConfig();
+  await execAsync([`git pull`].join("&&"), "", { cwd: folderPath });
+  const commamds = [`git tag -l "${tagName}"`];
+  const existTag = (await execAsync(commamds.join("&&"), "", { cwd: folderPath })).trim();
+  if (existTag) {
+    sp.stop();
+    console.log(chalk.red(`${project}标签${tagName}已存在`));
+    const { existAction } = await prompt$1({
+      type: "list",
+      name: "existAction",
+      message: `${project}标签${tagName}已存在，请选择下一步操作。`,
+      choices: [
+        { name: "删除并重新创建", value: "delete" },
+        { name: "跳过此项目", value: "pass" },
+        { name: "终止操作", value: "stop" }
+      ]
+    });
+    if (existAction === "stop") {
+      kill$1(process.pid);
+      return;
+    }
+    if (existAction === "delete") {
+      sp.stop();
+      const { remoteTagIsDelete } = await prompt$1({
+        type: "confirm",
+        message: `${project}远程的${tagName}是否已经删除？`,
+        name: "remoteTagIsDelete"
+      });
+      if (!remoteTagIsDelete) {
+        console.log(chalk.red(`请先删除${project}远程的${tagName}标签`));
+        kill$1(process.pid);
+      }
+      const deleteTagCommands = [`git tag -d ${tagName}`];
+      await execAsync(deleteTagCommands.join("&&"), "", { cwd: folderPath });
+    } else if (existAction === "pass") {
+      return;
+    }
+  }
+  const createCommands = [
+    `git checkout ${branch}`,
+    `git pull`,
+    `git tag ${tagName}`,
+    `git push ${origin} ${tagName}`
+  ];
+  await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
+  sp.text = `${project}标签创建完成`;
+  await sleep(500);
+};
 const createTags = async ({
   tagProjects,
   tagName,
-  branch
+  branch,
+  isCustom
 }) => {
   const { initProjectes, folder, gitPrefix } = getConfig();
   const initTags = tagProjects.filter((v) => initProjectes.includes(v));
@@ -666,11 +714,19 @@ const createTags = async ({
     }
   }
   for (const item of initTags) {
-    await createTag(item, tagName, branch, sp, path.join(folder, item));
+    if (isCustom) {
+      await createCustomTag(item, tagName, branch, sp, path.join(folder, item));
+    } else {
+      await createTag(item, tagName, branch, sp, path.join(folder, item));
+    }
     sp.succeed(`${item} 标签: ${tagName} 创建成功`);
   }
   for (const item of projectTags) {
-    await createTag(item, tagName, branch, sp, path.join(folder, item));
+    if (isCustom) {
+      await createCustomTag(item, tagName, branch, sp, path.join(folder, item));
+    } else {
+      await createTag(item, tagName, branch, sp, path.join(folder, item));
+    }
     sp.succeed(`${item} 标签: ${tagName} 创建成功`);
   }
   sp.text = "开始获取远程的标签";
@@ -856,22 +912,28 @@ program.command("m").description("只进行代码的拉取，合并(如果需要
   const { deployConfig } = await getDeployConfig(false);
   await handleMerge(deployConfig, prompt);
 });
-program.command("tag").argument("<tag>").description("创建标签").action(async (tag) => {
+program.command("tag").argument("<tag>").description("创建标签").option("-f, --from <branch>", "指定来源分支").action(async (tag, { from }) => {
   await checkVersion(prompt);
   if (!tag) {
     console.log(chalk.red("请输入标签名称"));
     kill$1(process.pid);
   }
   const { projectes, initProjectes, tagBranches, nonMainLineBranches } = getConfig();
-  const { branch } = await prompt({
-    type: "list",
-    name: "branch",
-    message: "请选择来源分支",
-    choices: tagBranches.map((v) => ({
-      name: v,
-      value: v
-    }))
-  });
+  let branch = "";
+  if (from) {
+    branch = from;
+  } else {
+    const res = await prompt({
+      type: "list",
+      name: "branch",
+      message: "请选择来源分支",
+      choices: tagBranches.map((v) => ({
+        name: v,
+        value: v
+      }))
+    });
+    branch = res.branch;
+  }
   const allProjects = [
     ...initProjectes,
     ...projectes,
@@ -894,7 +956,8 @@ program.command("tag").argument("<tag>").description("创建标签").action(asyn
   createTags({
     tagProjects: tagProjects.includes("all") ? allProjects.filter((v) => !nonMainLineBranches.includes(v)) : tagProjects,
     tagName: tag,
-    branch
+    branch,
+    isCustom: !!from
   });
 });
 program.command("u").description("统一修改项目中package.json的某一个配置").argument("<branch>", "统一修改的分支").action(async (branch) => {
