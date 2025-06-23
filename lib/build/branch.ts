@@ -92,8 +92,9 @@ export const mergeBranch = async (config: CreateBranchOptions) => {
       sp.stop();
       sp.fail(`${item} ${branch} 分支合并失败`);
       try {
-        execAsync([`git merge --abort`, "code ./"], "", { cwd });
+        execAsync(["code ./"], "", { cwd });
       } catch (error) {}
+      continue
     }
     sp.succeed(
       `${chalk.green(item)} ${chalk.green(from)} -> ${chalk.green(
