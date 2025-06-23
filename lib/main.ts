@@ -15,6 +15,7 @@ import { handleDeploy } from "./build/deploy";
 import { RunGitOptions } from "./build/types";
 import { createTags } from "./build/tag";
 import { updatePackage } from "./build/updateFile";
+import { createBranch, mergeBranch } from "./build/branch";
 
 const prompt = createPromptModule();
 
@@ -120,6 +121,30 @@ const getDeployConfig = async (
   };
 };
 
+const getProjects = async () => {
+  const { projectes, initProjectes, nonMainLineBranches } = getConfig();
+  const allProjects = [...initProjectes, ...projectes, ...nonMainLineBranches];
+  const { selectProjectes } = await prompt({
+    type: "checkbox",
+    name: "selectProjectes",
+    message: "请选择需要处理的项目",
+    choices: [{ name: "全部主线项目", value: "all", checked: true }].concat(
+      allProjects.map((v) => {
+        return {
+          name: v,
+          value: v,
+          checked: false,
+        };
+      })
+    ),
+  });
+  return {
+    selectProjectes: selectProjectes.includes("all")
+      ? allProjects.filter((v) => !nonMainLineBranches.includes(v))
+      : selectProjectes,
+  };
+};
+
 program
   .command("b")
   .argument("[branch]")
@@ -187,6 +212,54 @@ program
   });
 
 program
+  .command("branch")
+  .argument("<branch>")
+  .option("-f, --from <branch>", "指定来源分支")
+  .description("创建新分支")
+  .action(async (branch, options) => {
+    await checkVersion(prompt);
+    if (!branch) {
+      console.log(chalk.red("请输入分支名称"));
+      kill(process.pid);
+    }
+    if (!options?.from) {
+      console.log(chalk.red("请使用 -f 或 --from 指定来源分支"));
+      kill(process.pid);
+    }
+    await sleep(10);
+    const { selectProjectes } = await getProjects();
+    await createBranch({
+      branch,
+      from: options.from,
+      selectProjectes,
+    });
+  });
+
+program
+  .command("merge")
+  .argument("<branch>")
+  .option("-f, --from <branch>", "指定来源分支")
+  .description("合并新分支")
+  .action(async (branch, options) => {
+    await checkVersion(prompt);
+    if (!branch) {
+      console.log(chalk.red("请输入分支名称"));
+      kill(process.pid);
+    }
+    if (!options.from) {
+      console.log(chalk.red("请使用 -f 或 --from 指定来源分支"));
+      kill(process.pid);
+    }
+    await sleep(10);
+    const { selectProjectes } = await getProjects();
+    await mergeBranch({
+      branch,
+      from: options.from,
+      selectProjectes,
+    });
+  });
+
+program
   .command("tag")
   .argument("<tag>")
   .description("创建标签")
@@ -223,7 +296,7 @@ program
       type: "checkbox",
       name: "tagProjects",
       message: "请选择需要创建标签的项目",
-      choices: [{ name: "全部非主线项目", value: "all", checked: true }].concat(
+      choices: [{ name: "全部主线项目", value: "all", checked: true }].concat(
         allProjects.map((v) => {
           return {
             name: v,

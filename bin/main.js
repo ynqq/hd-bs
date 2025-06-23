@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.24";
+const version = "0.0.25";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -782,6 +782,95 @@ const updatePackage = async (options) => {
   }
   sp.succeed(`已将所有项目package.json中${editKey}的值改为${newVal}`);
 };
+const createBranch = async (config) => {
+  const { branch, from, selectProjectes } = config;
+  const { folder, origin } = getConfig();
+  for (const item of selectProjectes) {
+    const sp = createOra("");
+    const cwd = path$1.join(folder, item);
+    sp.text = `正在从${chalk.green(item)}的 ${chalk.red(
+      from
+    )} 创建 ${chalk.green(branch)} 分支`;
+    const allBranches = await execAsync(
+      [`git branch --all | grep remotes`],
+      "",
+      { cwd }
+    );
+    if (allBranches.includes(`remotes/${origin}/${branch}`)) {
+      sp.fail(chalk.red(`${item} ${branch} 远程分支已存在`));
+      continue;
+    }
+    sp.start();
+    sp.spinner = "balloon2";
+    try {
+      await execAsync(
+        [
+          `git checkout ${from}`,
+          `git pull`,
+          `git checkout -b ${branch}`,
+          `git push -u origin ${branch}`
+        ],
+        "",
+        { cwd }
+      );
+    } catch (error) {
+      sp.stop();
+      sp.fail(`${item} ${branch} 分支创建失败`);
+      continue;
+    }
+    sp.succeed(`${chalk.green(item)} ${chalk.green(branch)} 分支创建成功`);
+  }
+};
+const mergeBranch = async (config) => {
+  const { branch, from, selectProjectes } = config;
+  const { folder, origin } = getConfig();
+  for (const item of selectProjectes) {
+    const sp = createOra("");
+    const cwd = path$1.join(folder, item);
+    sp.text = `正在从${chalk.green(item)}的 ${chalk.red(
+      from
+    )} 合并到 ${chalk.green(branch)} 分支`;
+    const allBranches = await execAsync(
+      [`git branch --all | grep remotes`],
+      "",
+      { cwd }
+    );
+    if (!allBranches.includes(`remotes/${origin}/${branch}`)) {
+      sp.fail(chalk.red(`${item} ${branch} 远程分支不存在`));
+      continue;
+    }
+    if (!allBranches.includes(`remotes/${origin}/${from}`)) {
+      sp.fail(chalk.red(`${item} ${from} 远程分支不存在`));
+      continue;
+    }
+    sp.start();
+    sp.spinner = "soccerHeader";
+    try {
+      await execAsync(
+        [
+          `git checkout ${branch}`,
+          `git pull`,
+          `git merge ${from}`,
+          `git push origin ${branch}`
+        ],
+        "",
+        { cwd }
+      );
+    } catch (error) {
+      sp.stop();
+      sp.fail(`${item} ${branch} 分支合并失败`);
+      try {
+        execAsync([`git merge --abort`, "code ./"], "", { cwd });
+      } catch (error2) {
+      }
+    }
+    sp.succeed(
+      `${chalk.green(item)} ${chalk.green(from)} -> ${chalk.green(
+        branch
+      )} 分支合并成功`
+    );
+  }
+};
 const { createPromptModule } = inquirer.default;
 const prompt = createPromptModule();
 program.version(version, "-v, --version");
@@ -867,6 +956,27 @@ const getDeployConfig = async (passBuild, onlyBuild, branchName) => {
     deployConfig
   };
 };
+const getProjects = async () => {
+  const { projectes, initProjectes, nonMainLineBranches } = getConfig();
+  const allProjects = [...initProjectes, ...projectes, ...nonMainLineBranches];
+  const { selectProjectes } = await prompt({
+    type: "checkbox",
+    name: "selectProjectes",
+    message: "请选择需要处理的项目",
+    choices: [{ name: "全部主线项目", value: "all", checked: true }].concat(
+      allProjects.map((v) => {
+        return {
+          name: v,
+          value: v,
+          checked: false
+        };
+      })
+    )
+  });
+  return {
+    selectProjectes: selectProjectes.includes("all") ? allProjects.filter((v) => !nonMainLineBranches.includes(v)) : selectProjectes
+  };
+};
 program.command("b").argument("[branch]").option("-p", "跳过build").description("只构建").action(async (branch, options) => {
   await checkVersion(prompt);
   const p = options.passBuild || process.argv.includes("-p");
@@ -912,6 +1022,42 @@ program.command("m").description("只进行代码的拉取，合并(如果需要
   const { deployConfig } = await getDeployConfig(false);
   await handleMerge(deployConfig, prompt);
 });
+program.command("branch").argument("<branch>").option("-f, --from <branch>", "指定来源分支").description("创建新分支").action(async (branch, options) => {
+  await checkVersion(prompt);
+  if (!branch) {
+    console.log(chalk.red("请输入分支名称"));
+    kill$1(process.pid);
+  }
+  if (!(options == null ? void 0 : options.from)) {
+    console.log(chalk.red("请使用 -f 或 --from 指定来源分支"));
+    kill$1(process.pid);
+  }
+  await sleep(10);
+  const { selectProjectes } = await getProjects();
+  await createBranch({
+    branch,
+    from: options.from,
+    selectProjectes
+  });
+});
+program.command("merge").argument("<branch>").option("-f, --from <branch>", "指定来源分支").description("合并新分支").action(async (branch, options) => {
+  await checkVersion(prompt);
+  if (!branch) {
+    console.log(chalk.red("请输入分支名称"));
+    kill$1(process.pid);
+  }
+  if (!options.from) {
+    console.log(chalk.red("请使用 -f 或 --from 指定来源分支"));
+    kill$1(process.pid);
+  }
+  await sleep(10);
+  const { selectProjectes } = await getProjects();
+  await mergeBranch({
+    branch,
+    from: options.from,
+    selectProjectes
+  });
+});
 program.command("tag").argument("<tag>").description("创建标签").option("-f, --from <branch>", "指定来源分支").action(async (tag, { from }) => {
   await checkVersion(prompt);
   if (!tag) {
@@ -943,7 +1089,7 @@ program.command("tag").argument("<tag>").description("创建标签").option("-f,
     type: "checkbox",
     name: "tagProjects",
     message: "请选择需要创建标签的项目",
-    choices: [{ name: "全部非主线项目", value: "all", checked: true }].concat(
+    choices: [{ name: "全部主线项目", value: "all", checked: true }].concat(
       allProjects.map((v) => {
         return {
           name: v,
