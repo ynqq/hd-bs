@@ -25,8 +25,9 @@ program
   .command("init")
   .argument("[dir]", "工作目录", "")
   .description("初始化工作目录")
-  .action(async (dir) => {
-    await checkVersion(prompt);
+  .option("-n, --notCheck", "不校验版本")
+  .action(async (dir, { notCheck }) => {
+    await checkVersion(prompt, notCheck);
     const sp = createOra("正在进行初始化");
     setConfig({
       folder: dir,
@@ -149,9 +150,10 @@ program
   .command("b")
   .argument("[branch]")
   .option("-p", "跳过build")
+  .option("-n, --notCheck", "不校验版本")
   .description("只构建")
   .action(async (branch, options) => {
-    await checkVersion(prompt);
+    await checkVersion(prompt, options.notCheck);
     const p = options.passBuild || process.argv.includes("-p");
 
     const { folder } = getConfig();
@@ -171,9 +173,10 @@ program
 program
   .command("bs")
   .option("-p", "跳过build")
+  .option("-n, --notCheck", "不校验版本")
   .description("构建并且部署")
   .action(async (options) => {
-    await checkVersion(prompt);
+    await checkVersion(prompt, options.notCheck);
     const p = options.passBuild || process.argv.includes("-p");
     const { folder } = getConfig();
     if (!folder) {
@@ -195,18 +198,20 @@ program
 program
   .command("d")
   .argument("<tag>")
+  .option("-n, --notCheck", "不校验版本")
   .description("只部署")
-  .action(async (tag: string) => {
-    await checkVersion(prompt);
+  .action(async (tag: string, { notCheck }) => {
+    await checkVersion(prompt, notCheck);
     const { deployConfig } = await getDeployConfig(false);
     await handleDeploy(deployConfig, tag);
   });
 
 program
   .command("m")
+  .option("-n, --notCheck", "不校验版本")
   .description("只进行代码的拉取，合并(如果需要), 推送")
-  .action(async () => {
-    await checkVersion(prompt);
+  .action(async ({ notCheck }) => {
+    await checkVersion(prompt, notCheck);
     const { deployConfig } = await getDeployConfig(false);
     await handleMerge(deployConfig, prompt);
   });
@@ -215,9 +220,10 @@ program
   .command("branch")
   .argument("<branch>")
   .option("-f, --from <branch>", "指定来源分支")
+  .option("-n, --notCheck", "不校验版本")
   .description("创建新分支")
   .action(async (branch, options) => {
-    await checkVersion(prompt);
+    await checkVersion(prompt, options.notCheck);
     if (!branch) {
       console.log(chalk.red("请输入分支名称"));
       kill(process.pid);
@@ -239,9 +245,10 @@ program
   .command("merge")
   .argument("<branch>")
   .option("-f, --from <branch>", "指定来源分支")
+  .option("-n, --notCheck", "不校验版本")
   .description("合并新分支")
   .action(async (branch, options) => {
-    await checkVersion(prompt);
+    await checkVersion(prompt, options.notCheck);
     if (!branch) {
       console.log(chalk.red("请输入分支名称"));
       kill(process.pid);
@@ -264,8 +271,9 @@ program
   .argument("<tag>")
   .description("创建标签")
   .option("-f, --from <branch>", "指定来源分支")
-  .action(async (tag: string, { from }) => {
-    await checkVersion(prompt);
+  .option("-n, --notCheck", "不校验版本")
+  .action(async (tag: string, { from, notCheck }) => {
+    await checkVersion(prompt, notCheck);
     if (!tag) {
       console.log(chalk.red("请输入标签名称"));
       kill(process.pid);
@@ -319,10 +327,11 @@ program
 // 修改package.json
 program
   .command("u")
+  .option("-n, --notCheck", "不校验版本")
   .description("统一修改项目中package.json的某一个配置")
   .argument("<branch>", "统一修改的分支")
-  .action(async (branch: string) => {
-    await checkVersion(prompt);
+  .action(async (branch: string, { notCheck }) => {
+    await checkVersion(prompt, notCheck);
     if (!branch) {
       console.log(chalk.red("请输入分支名称"));
       kill(process.pid);

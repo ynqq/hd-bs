@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import dayjs from "dayjs";
 import { kill } from "node:process";
 import { Client } from "ssh2";
-const version = "0.0.25";
+const version = "0.0.26";
 const userHome = os.homedir();
 const npmrcFilePath = path.join(userHome, ".HDDepolyrc");
 const getRCPath = () => npmrcFilePath;
@@ -115,7 +115,10 @@ const hasconflict = async (cwd) => {
     return item.status.includes("UU");
   });
 };
-const checkVersion = async (prompt2) => {
+const checkVersion = async (prompt2, noCheck) => {
+  if (noCheck) {
+    return;
+  }
   const sp = createOra("正在检查版本");
   let npmVersion = await execAsync("npm view hd-bs version");
   npmVersion = npmVersion.trim().replace(/\n/, "");
@@ -143,6 +146,7 @@ const checkVersion = async (prompt2) => {
 const checkProjectDir = async (projects, branch) => {
   const sp = createOra("项目初始化");
   const { folder, gitPrefix } = getConfig();
+  const hasBranchProjects = [], notHasBranchProjects = [];
   for (const item of projects) {
     const projectPath = join(folder, item);
     if (!existsSync(projectPath)) {
@@ -151,6 +155,11 @@ const checkProjectDir = async (projects, branch) => {
       await execAsync(commands.join("&&"), "", { cwd: folder });
     }
     if (branch) {
+      if (!await checkHasBranch(branch, projectPath, item, sp)) {
+        sp.stop();
+        notHasBranchProjects.push(item);
+        continue;
+      }
       sp.text = `${item}正在清理更改并切换到${branch}`;
       await execAsync(
         `git checkout -q -- . && git checkout ${branch} && git pull`,
@@ -159,9 +168,26 @@ const checkProjectDir = async (projects, branch) => {
           cwd: projectPath
         }
       );
+      hasBranchProjects.push(item);
+    } else {
+      hasBranchProjects.push(item);
     }
   }
   sp.succeed("项目切换完成");
+  return { has: hasBranchProjects, notHas: notHasBranchProjects };
+};
+const checkHasBranch = async (branch, folderPath, project, sp) => {
+  const allBranches = await execAsync([`git branch --all | grep remotes`], "", {
+    cwd: folderPath
+  });
+  const { origin } = getConfig();
+  if (!allBranches.includes(`remotes/${origin}/${branch}`)) {
+    sp.fail(
+      chalk.yellowBright(`${project} 分支: ${branch} ${chalk.red("不存在")}`)
+    );
+    return false;
+  }
+  return true;
 };
 const LOCK_DOCKERFILE_NAME = `lock.Dockerfile`;
 const handleMergeBranch = async (project, branch, folderPath) => {
@@ -649,6 +675,15 @@ const createTag = async (project, tagName, branch, sp, folderPath) => {
 };
 const createCustomTag = async (project, tagName, branch, sp, folderPath) => {
   const { origin } = getConfig();
+  const allBranches = await execAsync([`git branch --all | grep remotes`], "", {
+    cwd: folderPath
+  });
+  if (!allBranches.includes(`remotes/${origin}/${branch}`)) {
+    sp.fail(
+      chalk.yellowBright(`${project} 分支: ${branch} ${chalk.red("不存在")}`)
+    );
+    return false;
+  }
   await execAsync([`git pull`].join("&&"), "", { cwd: folderPath });
   const commamds = [`git tag -l "${tagName}"`];
   const existTag = (await execAsync(commamds.join("&&"), "", { cwd: folderPath })).trim();
@@ -667,7 +702,7 @@ const createCustomTag = async (project, tagName, branch, sp, folderPath) => {
     });
     if (existAction === "stop") {
       kill$1(process.pid);
-      return;
+      return false;
     }
     if (existAction === "delete") {
       sp.stop();
@@ -683,7 +718,7 @@ const createCustomTag = async (project, tagName, branch, sp, folderPath) => {
       const deleteTagCommands = [`git tag -d ${tagName}`];
       await execAsync(deleteTagCommands.join("&&"), "", { cwd: folderPath });
     } else if (existAction === "pass") {
-      return;
+      return false;
     }
   }
   const createCommands = [
@@ -695,6 +730,7 @@ const createCustomTag = async (project, tagName, branch, sp, folderPath) => {
   await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
   sp.text = `${project}标签创建完成`;
   await sleep(500);
+  return true;
 };
 const createTags = async ({
   tagProjects,
@@ -706,6 +742,7 @@ const createTags = async ({
   const initTags = tagProjects.filter((v) => initProjectes.includes(v));
   const projectTags = tagProjects.filter((v) => !initProjectes.includes(v));
   const sp = createOra(``);
+  const notHasBranch = [];
   for (const item of tagProjects) {
     if (!fs.existsSync(path.join(folder, item))) {
       sp.text = `正在克隆${item}`;
@@ -714,20 +751,42 @@ const createTags = async ({
     }
   }
   for (const item of initTags) {
+    let success = true;
     if (isCustom) {
-      await createCustomTag(item, tagName, branch, sp, path.join(folder, item));
+      success = await createCustomTag(
+        item,
+        tagName,
+        branch,
+        sp,
+        path.join(folder, item)
+      );
     } else {
       await createTag(item, tagName, branch, sp, path.join(folder, item));
     }
-    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+    if (success) {
+      sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+    } else {
+      notHasBranch.push(item);
+    }
   }
   for (const item of projectTags) {
+    let success = true;
     if (isCustom) {
-      await createCustomTag(item, tagName, branch, sp, path.join(folder, item));
+      success = await createCustomTag(
+        item,
+        tagName,
+        branch,
+        sp,
+        path.join(folder, item)
+      );
     } else {
       await createTag(item, tagName, branch, sp, path.join(folder, item));
     }
-    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+    if (success) {
+      sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+    } else {
+      notHasBranch.push(item);
+    }
   }
   sp.text = "开始获取远程的标签";
   sp.spinner = "aesthetic";
@@ -740,14 +799,18 @@ const createTags = async ({
           await execAsync(`git fetch origin tag ${tagName}`, "", {
             cwd: path.join(folder, item)
           });
+          return item;
         } catch (error) {
           return Promise.reject(item);
         }
       })();
     })
   );
-  const errs = resList.filter((v) => v.status === "rejected");
+  const errs = resList.filter(
+    (v) => v.status === "rejected" && !notHasBranch.includes(v.reason)
+  );
   if (errs.length) {
+    sp.stop();
     console.log(
       chalk.red(errs.map((v) => v.reason).join(",")) + "标签创建失败"
     );
@@ -758,9 +821,9 @@ const createTags = async ({
 const updatePackage = async (options) => {
   const { projects, branch, editKey, newVal } = options;
   const { folder, origin } = getConfig();
-  await checkProjectDir(projects, branch);
+  const { has, notHas } = await checkProjectDir(projects, branch);
   const sp = createOra("开始修改");
-  for (const project of projects) {
+  for (const project of projects.filter((v) => has.includes(v))) {
     const filePath = join(folder, project, "/package.json");
     const reg = new RegExp(`("${editKey}":\\s+").+(",?
 ?)`);
@@ -780,7 +843,13 @@ const updatePackage = async (options) => {
       sp.succeed(`${project}无需修改`);
     }
   }
-  sp.succeed(`已将所有项目package.json中${editKey}的值改为${newVal}`);
+  sp.succeed(
+    `已将${chalk.green(
+      `含有${branch}分支`
+    )}的所有项目package.json中${editKey}的值改为${newVal}。${chalk.red(
+      `${notHas.join(",")}不存在${branch}分支`
+    )}`
+  );
 };
 const createBranch = async (config) => {
   const { branch, from, selectProjectes } = config;
@@ -875,8 +944,8 @@ const mergeBranch = async (config) => {
 const { createPromptModule } = inquirer.default;
 const prompt = createPromptModule();
 program.version(version, "-v, --version");
-program.command("init").argument("[dir]", "工作目录", "").description("初始化工作目录").action(async (dir) => {
-  await checkVersion(prompt);
+program.command("init").argument("[dir]", "工作目录", "").description("初始化工作目录").option("-n, --notCheck", "不校验版本").action(async (dir, { notCheck }) => {
+  await checkVersion(prompt, notCheck);
   const sp = createOra("正在进行初始化");
   setConfig({
     folder: dir
@@ -978,8 +1047,8 @@ const getProjects = async () => {
     selectProjectes: selectProjectes.includes("all") ? allProjects.filter((v) => !nonMainLineBranches.includes(v)) : selectProjectes
   };
 };
-program.command("b").argument("[branch]").option("-p", "跳过build").description("只构建").action(async (branch, options) => {
-  await checkVersion(prompt);
+program.command("b").argument("[branch]").option("-p", "跳过build").option("-n, --notCheck", "不校验版本").description("只构建").action(async (branch, options) => {
+  await checkVersion(prompt, options.notCheck);
   const p = options.passBuild || process.argv.includes("-p");
   const { folder } = getConfig();
   if (!folder) {
@@ -994,8 +1063,8 @@ program.command("b").argument("[branch]").option("-p", "跳过build").descriptio
   );
   await handleBuild(deployConfig);
 });
-program.command("bs").option("-p", "跳过build").description("构建并且部署").action(async (options) => {
-  await checkVersion(prompt);
+program.command("bs").option("-p", "跳过build").option("-n, --notCheck", "不校验版本").description("构建并且部署").action(async (options) => {
+  await checkVersion(prompt, options.notCheck);
   const p = options.passBuild || process.argv.includes("-p");
   const { folder } = getConfig();
   if (!folder) {
@@ -1013,18 +1082,18 @@ program.command("bs").option("-p", "跳过build").description("构建并且部�
     await handleDeploy(deployConfig, tag);
   }
 });
-program.command("d").argument("<tag>").description("只部署").action(async (tag) => {
-  await checkVersion(prompt);
+program.command("d").argument("<tag>").option("-n, --notCheck", "不校验版本").description("只部署").action(async (tag, { notCheck }) => {
+  await checkVersion(prompt, notCheck);
   const { deployConfig } = await getDeployConfig(false);
   await handleDeploy(deployConfig, tag);
 });
-program.command("m").description("只进行代码的拉取，合并(如果需要), 推送").action(async () => {
-  await checkVersion(prompt);
+program.command("m").option("-n, --notCheck", "不校验版本").description("只进行代码的拉取，合并(如果需要), 推送").action(async ({ notCheck }) => {
+  await checkVersion(prompt, notCheck);
   const { deployConfig } = await getDeployConfig(false);
   await handleMerge(deployConfig, prompt);
 });
-program.command("branch").argument("<branch>").option("-f, --from <branch>", "指定来源分支").description("创建新分支").action(async (branch, options) => {
-  await checkVersion(prompt);
+program.command("branch").argument("<branch>").option("-f, --from <branch>", "指定来源分支").option("-n, --notCheck", "不校验版本").description("创建新分支").action(async (branch, options) => {
+  await checkVersion(prompt, options.notCheck);
   if (!branch) {
     console.log(chalk.red("请输入分支名称"));
     kill$1(process.pid);
@@ -1041,8 +1110,8 @@ program.command("branch").argument("<branch>").option("-f, --from <branch>", "�
     selectProjectes
   });
 });
-program.command("merge").argument("<branch>").option("-f, --from <branch>", "指定来源分支").description("合并新分支").action(async (branch, options) => {
-  await checkVersion(prompt);
+program.command("merge").argument("<branch>").option("-f, --from <branch>", "指定来源分支").option("-n, --notCheck", "不校验版本").description("合并新分支").action(async (branch, options) => {
+  await checkVersion(prompt, options.notCheck);
   if (!branch) {
     console.log(chalk.red("请输入分支名称"));
     kill$1(process.pid);
@@ -1059,8 +1128,8 @@ program.command("merge").argument("<branch>").option("-f, --from <branch>", "指
     selectProjectes
   });
 });
-program.command("tag").argument("<tag>").description("创建标签").option("-f, --from <branch>", "指定来源分支").action(async (tag, { from }) => {
-  await checkVersion(prompt);
+program.command("tag").argument("<tag>").description("创建标签").option("-f, --from <branch>", "指定来源分支").option("-n, --notCheck", "不校验版本").action(async (tag, { from, notCheck }) => {
+  await checkVersion(prompt, notCheck);
   if (!tag) {
     console.log(chalk.red("请输入标签名称"));
     kill$1(process.pid);
@@ -1107,8 +1176,8 @@ program.command("tag").argument("<tag>").description("创建标签").option("-f,
     isCustom: !!from
   });
 });
-program.command("u").description("统一修改项目中package.json的某一个配置").argument("<branch>", "统一修改的分支").action(async (branch) => {
-  await checkVersion(prompt);
+program.command("u").option("-n, --notCheck", "不校验版本").description("统一修改项目中package.json的某一个配置").argument("<branch>", "统一修改的分支").action(async (branch, { notCheck }) => {
+  await checkVersion(prompt, notCheck);
   if (!branch) {
     console.log(chalk.red("请输入分支名称"));
     kill$1(process.pid);

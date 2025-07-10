@@ -6,6 +6,7 @@ import { createOra } from "../ora";
 import { existsSync } from "fs";
 import { join } from "path";
 import { getConfig } from "../config";
+import { Ora } from "ora";
 
 export const sleep = (time: number = 300) => {
   return new Promise((resolve) => {
@@ -53,7 +54,10 @@ export const hasconflict = async (cwd: string | URL) => {
   });
 };
 
-export const checkVersion = async (prompt: PromptModule) => {
+export const checkVersion = async (prompt: PromptModule, noCheck?: boolean) => {
+  if (noCheck) {
+    return;
+  }
   const sp = createOra("正在检查版本");
   let npmVersion = await execAsync("npm view hd-bs version");
   npmVersion = npmVersion.trim().replace(/\n/, "");
@@ -79,9 +83,14 @@ export const checkVersion = async (prompt: PromptModule) => {
   }
 };
 
-export const checkProjectDir = async (projects: string[], branch?: string) => {
+export const checkProjectDir = async (
+  projects: string[],
+  branch?: string
+): Promise<{ has: string[]; notHas: string[] }> => {
   const sp = createOra("项目初始化");
   const { folder, gitPrefix } = getConfig();
+  const hasBranchProjects: string[] = [],
+    notHasBranchProjects: string[] = [];
   for (const item of projects) {
     const projectPath = join(folder, item);
     if (!existsSync(projectPath)) {
@@ -90,6 +99,11 @@ export const checkProjectDir = async (projects: string[], branch?: string) => {
       await execAsync(commands.join("&&"), "", { cwd: folder });
     }
     if (branch) {
+      if (!(await checkHasBranch(branch, projectPath, item, sp))) {
+        sp.stop();
+        notHasBranchProjects.push(item);
+        continue;
+      }
       sp.text = `${item}正在清理更改并切换到${branch}`;
       await execAsync(
         `git checkout -q -- . && git checkout ${branch} && git pull`,
@@ -98,7 +112,30 @@ export const checkProjectDir = async (projects: string[], branch?: string) => {
           cwd: projectPath,
         }
       );
+      hasBranchProjects.push(item);
+    } else {
+      hasBranchProjects.push(item);
     }
   }
   sp.succeed("项目切换完成");
+  return { has: hasBranchProjects, notHas: notHasBranchProjects };
+};
+
+export const checkHasBranch = async (
+  branch: string,
+  folderPath: string,
+  project: string,
+  sp: Ora
+): Promise<boolean> => {
+  const allBranches = await execAsync([`git branch --all | grep remotes`], "", {
+    cwd: folderPath,
+  });
+  const { origin } = getConfig();
+  if (!allBranches.includes(`remotes/${origin}/${branch}`)) {
+    sp.fail(
+      chalk.yellowBright(`${project} 分支: ${branch} ${chalk.red("不存在")}`)
+    );
+    return false;
+  }
+  return true;
 };

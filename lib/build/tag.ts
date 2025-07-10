@@ -156,6 +156,17 @@ const createCustomTag = async (
   folderPath: string
 ) => {
   const { origin } = getConfig();
+
+  const allBranches = await execAsync([`git branch --all | grep remotes`], "", {
+    cwd: folderPath,
+  });
+  if (!allBranches.includes(`remotes/${origin}/${branch}`)) {
+    sp.fail(
+      chalk.yellowBright(`${project} 分支: ${branch} ${chalk.red("不存在")}`)
+    );
+    return false;
+  }
+
   await execAsync([`git pull`].join("&&"), "", { cwd: folderPath });
   const commamds = [`git tag -l "${tagName}"`];
   const existTag = (
@@ -176,7 +187,7 @@ const createCustomTag = async (
     });
     if (existAction === "stop") {
       kill(process.pid);
-      return;
+      return false;
     }
     if (existAction === "delete") {
       sp.stop();
@@ -192,7 +203,7 @@ const createCustomTag = async (
       const deleteTagCommands = [`git tag -d ${tagName}`];
       await execAsync(deleteTagCommands.join("&&"), "", { cwd: folderPath });
     } else if (existAction === "pass") {
-      return;
+      return false;
     }
   }
   const createCommands = [
@@ -204,6 +215,7 @@ const createCustomTag = async (
   await execAsync(createCommands.join("&&"), "", { cwd: folderPath });
   sp.text = `${project}标签创建完成`;
   await sleep(500);
+  return true;
 };
 
 export const createTags = async ({
@@ -222,6 +234,7 @@ export const createTags = async ({
   const initTags = tagProjects.filter((v) => initProjectes.includes(v));
   const projectTags = tagProjects.filter((v) => !initProjectes.includes(v));
   const sp = createOra(``);
+  const notHasBranch: string[] = [];
   for (const item of tagProjects) {
     if (!fs.existsSync(path.join(folder, item))) {
       sp.text = `正在克隆${item}`;
@@ -230,41 +243,67 @@ export const createTags = async ({
     }
   }
   for (const item of initTags) {
+    let success = true;
     if (isCustom) {
-      await createCustomTag(item, tagName, branch, sp, path.join(folder, item));
+      success = await createCustomTag(
+        item,
+        tagName,
+        branch,
+        sp,
+        path.join(folder, item)
+      );
     } else {
       await createTag(item, tagName, branch, sp, path.join(folder, item));
     }
-    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+    if (success) {
+      sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+    } else {
+      notHasBranch.push(item);
+    }
   }
 
   for (const item of projectTags) {
+    let success = true;
     if (isCustom) {
-      await createCustomTag(item, tagName, branch, sp, path.join(folder, item));
+      success = await createCustomTag(
+        item,
+        tagName,
+        branch,
+        sp,
+        path.join(folder, item)
+      );
     } else {
       await createTag(item, tagName, branch, sp, path.join(folder, item));
     }
-    sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+    if (success) {
+      sp.succeed(`${item} 标签: ${tagName} 创建成功`);
+    } else {
+      notHasBranch.push(item);
+    }
   }
   sp.text = "开始获取远程的标签";
   sp.spinner = "aesthetic";
   sp.start();
   const allProjects = [...initTags, ...projectTags];
-  const resList = await Promise.allSettled(
+  const resList = await Promise.allSettled<Promise<string>>(
     allProjects.map((item) => {
       return (async () => {
         try {
           await execAsync(`git fetch origin tag ${tagName}`, "", {
             cwd: path.join(folder, item),
           });
+          return item;
         } catch (error) {
           return Promise.reject(item);
         }
       })();
     })
   );
-  const errs = resList.filter((v) => v.status === "rejected");
+  const errs = resList.filter(
+    (v) => v.status === "rejected" && !notHasBranch.includes(v.reason)
+  ) as PromiseRejectedResult[];
   if (errs.length) {
+    sp.stop();
     console.log(
       chalk.red(errs.map((v) => v.reason).join(",")) + "标签创建失败"
     );

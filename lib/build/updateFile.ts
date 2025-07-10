@@ -3,6 +3,7 @@ import { getConfig } from "../config";
 import { checkProjectDir, execAsync, getGitStatus } from "../util";
 import { readFileSync, writeFileSync } from "fs";
 import { createOra } from "../ora";
+import chalk from "chalk";
 
 export const updatePackage = async (options: {
   projects: string[];
@@ -12,9 +13,9 @@ export const updatePackage = async (options: {
 }) => {
   const { projects, branch, editKey, newVal } = options;
   const { folder, origin } = getConfig();
-  await checkProjectDir(projects, branch);
+  const { has, notHas } = await checkProjectDir(projects, branch);
   const sp = createOra("开始修改");
-  for (const project of projects) {
+  for (const project of projects.filter((v) => has.includes(v))) {
     const filePath = join(folder, project, "/package.json");
     const reg = new RegExp(`("${editKey}":\\s+").+(",?\n?)`);
     const str = readFileSync(filePath, "utf-8").replace(reg, `$1${newVal}$2`);
@@ -33,5 +34,11 @@ export const updatePackage = async (options: {
       sp.succeed(`${project}无需修改`);
     }
   }
-  sp.succeed(`已将所有项目package.json中${editKey}的值改为${newVal}`);
+  sp.succeed(
+    `已将${chalk.green(
+      `含有${branch}分支`
+    )}的所有项目package.json中${editKey}的值改为${newVal}。${chalk.red(
+      `${notHas.join(",")}不存在${branch}分支`
+    )}`
+  );
 };
